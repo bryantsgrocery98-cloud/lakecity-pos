@@ -1,7 +1,7 @@
 {
-  "version": "0.5.0",
-  "file": "lakecity-pos-0.5.0.zip",
-  "sha256": "faf83d4d69fa3a7fcece68322c7ea7ed187c3d487794313358ad5126c9c9d6bd",
-  "notes": "Thermal printing (receipts, drawer, test page), X/Z day report, voids and refunds",
-  "builtAt": "2026-10-14T02:34:04.648Z"
+  "version": "0.5.1",
+  "file": "lakecity-pos-0.5.1.zip",
+  "sha256": "d8de2bd9a0deaf533a989fce563d782aea8b0f2485c2810dd73d6b1d130908c2",
+  "notes": "Card payment is one tap; the card machine handles the charge",
+  "builtAt": "2026-10-14T02:41:29.638Z"
 }
