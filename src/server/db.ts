@@ -30,7 +30,7 @@ export class DB {
   close(): void { this.raw.close(); }
 }
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -61,7 +61,17 @@ CREATE TABLE IF NOT EXISTS buttons (
 CREATE TABLE IF NOT EXISTS sales (
   id INTEGER PRIMARY KEY, receipt_no TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, workday TEXT NOT NULL, cashier TEXT NOT NULL,
   subtotal_cents INTEGER NOT NULL, discount_cents INTEGER NOT NULL, tax_cents INTEGER NOT NULL,
-  total_cents INTEGER NOT NULL, discount_pct INTEGER NOT NULL DEFAULT 0, age_check TEXT);
+  total_cents INTEGER NOT NULL, discount_pct INTEGER NOT NULL DEFAULT 0, age_check TEXT,
+  voided_at TEXT, voided_by TEXT, void_reason TEXT, workday_closed INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS refunds (
+  id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), created_at TEXT NOT NULL, workday TEXT NOT NULL,
+  cashier TEXT NOT NULL, manager TEXT NOT NULL, reason TEXT NOT NULL, tender TEXT NOT NULL,
+  subtotal_cents INTEGER NOT NULL, tax_cents INTEGER NOT NULL, total_cents INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS refund_lines (
+  id INTEGER PRIMARY KEY, refund_id INTEGER NOT NULL REFERENCES refunds(id), sale_line_id INTEGER NOT NULL REFERENCES sale_lines(id),
+  name TEXT NOT NULL, qty INTEGER NOT NULL, cents INTEGER NOT NULL, tax_cents INTEGER NOT NULL, category TEXT NOT NULL, authority_id INTEGER);
+CREATE TABLE IF NOT EXISTS z_reports (
+  id INTEGER PRIMARY KEY, workday TEXT NOT NULL, closed_at TEXT NOT NULL, cashier TEXT NOT NULL, report_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sale_lines (
   id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), name TEXT NOT NULL, kind TEXT NOT NULL,
   qty INTEGER NOT NULL, unit_cents INTEGER NOT NULL, gross_cents INTEGER NOT NULL, discount_cents INTEGER NOT NULL,
@@ -103,6 +113,19 @@ function migrate(db: DB): void {
     db.exec(SCHEMA); // a fresh database already has every column below
   } else {
     if (current < 2) db.exec(`ALTER TABLE items ADD COLUMN image_version INTEGER NOT NULL DEFAULT 0;`);
+    if (current < 3) {
+      db.exec(`ALTER TABLE sales ADD COLUMN voided_at TEXT; ALTER TABLE sales ADD COLUMN voided_by TEXT; ALTER TABLE sales ADD COLUMN void_reason TEXT;
+        ALTER TABLE sales ADD COLUMN workday_closed INTEGER NOT NULL DEFAULT 0;
+        CREATE TABLE IF NOT EXISTS refunds (
+          id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), created_at TEXT NOT NULL, workday TEXT NOT NULL,
+          cashier TEXT NOT NULL, manager TEXT NOT NULL, reason TEXT NOT NULL, tender TEXT NOT NULL,
+          subtotal_cents INTEGER NOT NULL, tax_cents INTEGER NOT NULL, total_cents INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS refund_lines (
+          id INTEGER PRIMARY KEY, refund_id INTEGER NOT NULL REFERENCES refunds(id), sale_line_id INTEGER NOT NULL REFERENCES sale_lines(id),
+          name TEXT NOT NULL, qty INTEGER NOT NULL, cents INTEGER NOT NULL, tax_cents INTEGER NOT NULL, category TEXT NOT NULL, authority_id INTEGER);
+        CREATE TABLE IF NOT EXISTS z_reports (
+          id INTEGER PRIMARY KEY, workday TEXT NOT NULL, closed_at TEXT NOT NULL, cashier TEXT NOT NULL, report_json TEXT NOT NULL);`);
+    }
   }
   db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
 }

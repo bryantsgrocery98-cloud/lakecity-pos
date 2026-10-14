@@ -10,6 +10,7 @@ import {
 } from './modals';
 import { Icon, Keypad, OnScreenKeyboard, Shape } from './parts';
 import { InventoryPage, imageUrl } from './inventory';
+import { ManagePage } from './manage';
 import { installTapSound, play, setSoundsEnabled, soundsEnabled } from './sounds';
 import { CategoryArt } from './art';
 
@@ -47,6 +48,7 @@ export function App() {
   const [payError, setPayError] = useState('');
   const [linkError, setLinkError] = useState('');
   const [inventory, setInventory] = useState<string | null>(null);
+  const [manage, setManage] = useState<string | null>(null);
   const [sounds, setSounds] = useState(soundsEnabled());
   useEffect(() => installTapSound(), []); // manager PIN while the inventory page is open
   const invScan = useRef<((code: string) => void) | null>(null);
@@ -318,6 +320,9 @@ export function App() {
     return a.rateBp !== null ? `${a.title} ${a.rateBp / 100}%` : `${a.title} ${formatCents(a.flatCents ?? 0)}`;
   };
 
+  if (manage) {
+    return <ManagePage pin={manage} cashier={user.name} version={boot.version} onClose={() => setManage(null)} />;
+  }
   if (inventory) {
     return <InventoryPage authorities={boot.authorities} cashier={user.name} pin={inventory} version={boot.version} scanRef={invScan}
       onClose={() => setInventory(null)} onChanged={() => api<Bootstrap>('/api/bootstrap').then(setBoot).catch(() => {})} />;
@@ -331,6 +336,9 @@ export function App() {
           <span className="pill">Cashier: {user.name}</span>
           <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setModal({ t: 'pin', title: 'Inventory', hint: 'A manager or owner PIN opens inventory.', then: (pin) => { setModal(null); setInventory(pin); } })}>
             <Icon name="box" size={20} /> Inventory
+          </button>
+          <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setModal({ t: 'pin', title: 'Manage', hint: 'A manager or owner PIN opens sales, reports, and the printer.', then: (pin) => { setModal(null); setManage(pin); } })}>
+            <Icon name="settings" size={20} /> Manage
           </button>
           <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setModal({ t: 'today' })}>
             <Icon name="report" size={20} /> Today

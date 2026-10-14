@@ -345,7 +345,7 @@ export function ReceiptModal({ receipt, onDone }: { receipt: Receipt; onDone: ()
         <div className="c">{receipt.store.footer}<br />{receipt.store.refundPolicy}</div>
       </div>
       <div style={{ display: 'flex', gap: 10 }}>
-        <button className="btn" style={{ flex: 1 }} onClick={() => window.print()}>Print receipt</button>
+        <button className="btn" style={{ flex: 1 }} onClick={() => { api(`/api/sales/${receipt.receiptNo}/print`, {}).catch(() => window.print()); }}>Print receipt</button>
         <button className="btn btn-primary" style={{ flex: 2, minHeight: 60, fontSize: 20 }} onClick={onDone}>New sale</button>
       </div>
     </Modal>

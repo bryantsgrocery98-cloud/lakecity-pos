@@ -7,6 +7,9 @@ import { computeTotals, lotteryLabel, type TicketLine } from '../core/ticket.js'
 import { workdayFor } from '../core/workday.js';
 import type { createUpdater } from './updater.js';
 import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
+import { receiptBytes, testBytes, zReportBytes } from './escpos.js';
+import { listPrinters, sendToPrinter } from './printer.js';
+import { buildDayReport } from './reports.js';
 import type {
   AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
 } from '../core/types.js';
@@ -181,6 +184,160 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     })();
 
     res.json(receipt);
+    // After the sale: kick the drawer on cash, and print a receipt if that's turned on. Never block the sale on the printer.
+    const printer = getSetting(db, 'printer_target', '');
+    const kick = pay.tender === 'cash' && getSetting(db, 'drawer_kick', 'true') === 'true';
+    const auto = getSetting(db, 'print_receipts', 'false') === 'true';
+    if (printer && (kick || auto)) {
+      const bytes = auto ? receiptBytes(receipt, { kickDrawer: kick }) : Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa]);
+      sendToPrinter({ target: printer }, bytes).catch((e) => console.log(`[printer] ${(e as Error).message}`));
+    }
+  }));
+
+  // ---------- printing ----------
+  app.get('/api/printer', wrap(async (_req, res) => {
+    res.json({ target: getSetting(db, 'printer_target', ''), printReceipts: getSetting(db, 'print_receipts', 'false') === 'true',
+      drawerKick: getSetting(db, 'drawer_kick', 'true') === 'true', available: await listPrinters() });
+  }));
+  app.post('/api/printer', wrap((req, res) => {
+    const { pin, target, printReceipts, drawerKick } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const set = db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`);
+    if (target !== undefined) set.run('printer_target', String(target).trim().slice(0, 120));
+    if (printReceipts !== undefined) set.run('print_receipts', printReceipts ? 'true' : 'false');
+    if (drawerKick !== undefined) set.run('drawer_kick', drawerKick ? 'true' : 'false');
+    res.json({ ok: true });
+  }));
+  app.post('/api/printer/test', wrap(async (req, res) => {
+    const target = String(req.body?.target ?? getSetting(db, 'printer_target', ''));
+    await sendToPrinter({ target }, testBytes(getSetting(db, 'store_name', 'POS')));
+    res.json({ ok: true });
+  }));
+  app.post('/api/printer/drawer', wrap(async (req, res) => {
+    if (!isManagerPin(db, req.body?.pin) && getSetting(db, 'no_sale_requires_pin', 'false') === 'true') throw new HttpError(403, 'A manager PIN is needed.');
+    await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa]));
+    res.json({ ok: true });
+  }));
+  app.post('/api/sales/:receiptNo/print', wrap(async (req, res) => {
+    const r = loadReceipt(db, String(req.params.receiptNo));
+    if (!r) throw new HttpError(404, 'Receipt not found.');
+    await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, receiptBytes(r));
+    res.json({ ok: true });
+  }));
+
+  // ---------- sales lookup, voids, refunds ----------
+  app.get('/api/sales', wrap((req, res) => {
+    const q = String(req.query.q ?? '').trim();
+    const workday = workdayFor(new Date(), getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00'));
+    const rows = (q
+      ? db.prepare(`SELECT * FROM sales WHERE receipt_no LIKE ? ORDER BY id DESC LIMIT 50`).all(`%${q.toUpperCase().replace(/^R?0*/, '')}%`)
+      : db.prepare(`SELECT * FROM sales WHERE workday = ? ORDER BY id DESC LIMIT 100`).all(workday)) as Record<string, any>[];
+    res.json(rows.map((r) => ({
+      receiptNo: r.receipt_no, createdAt: r.created_at, cashier: r.cashier, totalCents: r.total_cents, voided: !!r.voided_at, voidReason: r.void_reason,
+      tender: (db.prepare(`SELECT tender FROM payments WHERE sale_id = ?`).get(r.id) as { tender: string } | undefined)?.tender ?? '',
+      refundedCents: (db.prepare(`SELECT COALESCE(SUM(total_cents),0) c FROM refunds WHERE sale_id = ?`).get(r.id) as { c: number }).c,
+      lines: (db.prepare(`SELECT id, name, qty, unit_cents, gross_cents, discount_cents, tax_cents, category, authority_id FROM sale_lines WHERE sale_id = ?`).all(r.id) as Record<string, any>[])
+        .map((l) => ({ id: l.id, name: l.name, qty: l.qty, unitCents: l.unit_cents, grossCents: l.gross_cents, discountCents: l.discount_cents, taxCents: l.tax_cents, category: l.category,
+          refundedQty: (db.prepare(`SELECT COALESCE(SUM(qty),0) q FROM refund_lines WHERE sale_line_id = ?`).get(l.id) as { q: number }).q })),
+    })));
+  }));
+
+  app.post('/api/sales/:receiptNo/void', wrap((req, res) => {
+    const { pin, cashier, reason } = req.body ?? {};
+    const manager = managerName(db, pin);
+    if (!manager) throw new HttpError(403, 'A manager PIN is needed to void a sale.');
+    const why = String(reason ?? '').trim();
+    if (!why) throw new HttpError(400, 'Give a reason for the void.');
+    const sale = db.prepare(`SELECT * FROM sales WHERE receipt_no = ?`).get(String(req.params.receiptNo)) as Record<string, any> | undefined;
+    if (!sale) throw new HttpError(404, 'Receipt not found.');
+    if (sale.voided_at) throw new HttpError(409, 'That sale is already voided.');
+    if (sale.workday_closed) throw new HttpError(409, 'That workday is closed. Use a refund instead.');
+    if ((db.prepare(`SELECT COUNT(*) n FROM refunds WHERE sale_id = ?`).get(sale.id) as { n: number }).n) throw new HttpError(409, 'That sale has refunds. Refund the rest instead of voiding.');
+    db.transaction(() => {
+      db.prepare(`UPDATE sales SET voided_at = ?, voided_by = ?, void_reason = ? WHERE id = ?`).run(new Date().toISOString(), manager, why.slice(0, 200), sale.id);
+      // Put stock back.
+      for (const l of db.prepare(`SELECT name, qty, kind FROM sale_lines WHERE sale_id = ? AND kind = 'item'`).all(sale.id) as { name: string; qty: number }[]) {
+        db.prepare(`UPDATE items SET qty_on_hand = qty_on_hand + ? WHERE (CASE WHEN size IS NULL THEN name ELSE name || ' ' || size END) = ?`).run(l.qty, l.name);
+      }
+      audit(db, String(cashier ?? ''), 'void_sale', `${sale.receipt_no} ${formatMoney(sale.total_cents)} by ${manager}: ${why}`);
+    })();
+    res.json({ ok: true });
+  }));
+
+  app.post('/api/sales/:receiptNo/refund', wrap((req, res) => {
+    const { pin, cashier, reason, lines } = req.body as { pin?: string; cashier?: string; reason?: string; lines?: { id: number; qty: number }[] };
+    const manager = managerName(db, pin);
+    if (!manager) throw new HttpError(403, 'A manager PIN is needed to refund.');
+    const why = String(reason ?? '').trim();
+    if (!why) throw new HttpError(400, 'Give a reason for the refund.');
+    if (!Array.isArray(lines) || !lines.length) throw new HttpError(400, 'Pick what is being refunded.');
+    const sale = db.prepare(`SELECT * FROM sales WHERE receipt_no = ?`).get(String(req.params.receiptNo)) as Record<string, any> | undefined;
+    if (!sale) throw new HttpError(404, 'Receipt not found.');
+    if (sale.voided_at) throw new HttpError(409, 'That sale was voided.');
+    const tender = (db.prepare(`SELECT tender FROM payments WHERE sale_id = ?`).get(sale.id) as { tender: string }).tender;
+    const now = new Date();
+    const workday = workdayFor(now, getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00'));
+    let subtotal = 0, tax = 0;
+    const planned: { line: Record<string, any>; qty: number; cents: number; taxCents: number }[] = [];
+    for (const req of lines) {
+      const l = db.prepare(`SELECT * FROM sale_lines WHERE id = ? AND sale_id = ?`).get(req.id, sale.id) as Record<string, any> | undefined;
+      if (!l) throw new HttpError(400, 'A line does not belong to that sale.');
+      const already = (db.prepare(`SELECT COALESCE(SUM(qty),0) q FROM refund_lines WHERE sale_line_id = ?`).get(l.id) as { q: number }).q;
+      const qty = Math.floor(Number(req.qty));
+      if (!Number.isInteger(qty) || qty < 1 || qty > l.qty - already) throw new HttpError(400, `${l.name}: only ${l.qty - already} can still be refunded.`);
+      const net = l.gross_cents - l.discount_cents;
+      const cents = Math.round(net * qty / l.qty);
+      const taxCents = Math.round(l.tax_cents * qty / l.qty);
+      subtotal += cents; tax += taxCents;
+      planned.push({ line: l, qty, cents, taxCents });
+    }
+    const total = subtotal + tax;
+    db.transaction(() => {
+      const r = db.prepare(`INSERT INTO refunds (sale_id, created_at, workday, cashier, manager, reason, tender, subtotal_cents, tax_cents, total_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(sale.id, now.toISOString(), workday, String(cashier ?? ''), manager, why.slice(0, 200), tender, subtotal, tax, total);
+      for (const p of planned) {
+        db.prepare(`INSERT INTO refund_lines (refund_id, sale_line_id, name, qty, cents, tax_cents, category, authority_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(r.lastInsertRowid, p.line.id, p.line.name, p.qty, p.cents, p.taxCents, p.line.category, p.line.authority_id);
+        if (p.line.kind === 'item') db.prepare(`UPDATE items SET qty_on_hand = qty_on_hand + ? WHERE (CASE WHEN size IS NULL THEN name ELSE name || ' ' || size END) = ?`).run(p.qty, p.line.name);
+      }
+      audit(db, String(cashier ?? ''), 'refund', `${sale.receipt_no} ${formatMoney(total)} ${tender} by ${manager}: ${why}`);
+    })();
+    if (tender === 'cash' && getSetting(db, 'printer_target', '') && getSetting(db, 'drawer_kick', 'true') === 'true') {
+      sendToPrinter({ target: getSetting(db, 'printer_target', '') }, Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa])).catch(() => {});
+    }
+    res.json({ ok: true, totalCents: total, tender });
+  }));
+
+  // ---------- X / Z reports ----------
+  app.get('/api/reports/day', wrap((req, res) => {
+    const workday = String(req.query.workday ?? workdayFor(new Date(), getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00')));
+    const closed = db.prepare(`SELECT closed_at, cashier FROM z_reports WHERE workday = ? ORDER BY id DESC LIMIT 1`).get(workday) as { closed_at: string; cashier: string } | undefined;
+    res.json({ ...buildDayReport(db, workday, String(req.query.cashier ?? ''), closed ? 'Z REPORT (closed)' : 'X REPORT'), closed: closed ?? null });
+  }));
+  app.post('/api/reports/z', wrap(async (req, res) => {
+    const { pin, cashier, print } = req.body ?? {};
+    const manager = managerName(db, pin);
+    if (!manager) throw new HttpError(403, 'A manager PIN is needed to close the day.');
+    const workday = workdayFor(new Date(), getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00'));
+    const report = buildDayReport(db, workday, manager, 'Z REPORT');
+    db.transaction(() => {
+      db.prepare(`INSERT INTO z_reports (workday, closed_at, cashier, report_json) VALUES (?, ?, ?, ?)`).run(workday, new Date().toISOString(), manager, JSON.stringify(report));
+      db.prepare(`UPDATE sales SET workday_closed = 1 WHERE workday = ?`).run(workday);
+      audit(db, String(cashier ?? ''), 'z_report', `${workday} total ${formatMoney(report.sales.total)} by ${manager}`);
+    })();
+    let printed = false, printError = '';
+    if (print && getSetting(db, 'printer_target', '')) {
+      try { await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, zReportBytes(report, getSetting(db, 'store_name', 'POS'), { items: true })); printed = true; }
+      catch (e) { printError = (e as Error).message; }
+    }
+    res.json({ report, printed, printError });
+  }));
+  app.post('/api/reports/print', wrap(async (req, res) => {
+    const workday = String(req.body?.workday ?? workdayFor(new Date(), getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00')));
+    const closed = db.prepare(`SELECT 1 FROM z_reports WHERE workday = ?`).get(workday);
+    const report = buildDayReport(db, workday, String(req.body?.cashier ?? ''), closed ? 'Z REPORT (reprint)' : 'X REPORT');
+    await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, zReportBytes(report, getSetting(db, 'store_name', 'POS'), { items: !!req.body?.items }));
+    res.json({ ok: true });
   }));
 
   // ---------- holds ----------
@@ -422,11 +579,11 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     res.json({
       workday,
       sales: one<{ n: number; total: number; tax: number }>(
-        `SELECT COUNT(*) n, COALESCE(SUM(total_cents),0) total, COALESCE(SUM(tax_cents),0) tax FROM sales WHERE workday = ?`),
+        `SELECT COUNT(*) n, COALESCE(SUM(total_cents),0) total, COALESCE(SUM(tax_cents),0) tax FROM sales WHERE workday = ? AND voided_at IS NULL`),
       byCategory: all<{ category: string; cents: number }>(
-        `SELECT category, SUM(gross_cents - discount_cents) cents FROM sale_lines WHERE sale_id IN (SELECT id FROM sales WHERE workday = ?) GROUP BY category ORDER BY cents DESC`),
+        `SELECT category, SUM(gross_cents - discount_cents) cents FROM sale_lines WHERE sale_id IN (SELECT id FROM sales WHERE workday = ? AND voided_at IS NULL) GROUP BY category ORDER BY cents DESC`),
       byAuthority: all<{ title: string; cents: number }>(
-        `SELECT title, SUM(cents) cents FROM sale_tax WHERE sale_id IN (SELECT id FROM sales WHERE workday = ?) GROUP BY title ORDER BY title`),
+        `SELECT title, SUM(cents) cents FROM sale_tax WHERE sale_id IN (SELECT id FROM sales WHERE workday = ? AND voided_at IS NULL) GROUP BY title ORDER BY title`),
       noSales: one<{ n: number }>(
         `SELECT COUNT(*) n FROM cash_events WHERE type = 'no_sale' AND ts >= (SELECT COALESCE(MIN(created_at), '9') FROM sales WHERE workday = ?)`).n,
       lotterySales: one<{ cents: number }>(
@@ -446,6 +603,28 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   });
   return app;
+}
+
+function managerName(db: DB, pin: string | undefined): string | null {
+  if (!pin) return null;
+  const u = db.prepare(`SELECT name, role FROM users WHERE pin = ? AND active = 1`).get(pin) as { name: string; role: string } | undefined;
+  return u && (u.role === 'manager' || u.role === 'owner') ? u.name : null;
+}
+function formatMoney(c: number): string { return `$${(c / 100).toFixed(2)}`; }
+
+function loadReceipt(db: DB, receiptNo: string): Receipt | null {
+  const s = db.prepare(`SELECT * FROM sales WHERE receipt_no = ?`).get(receiptNo) as Record<string, any> | undefined;
+  if (!s) return null;
+  const lines = db.prepare(`SELECT * FROM sale_lines WHERE sale_id = ?`).all(s.id) as Record<string, any>[];
+  const taxLines = db.prepare(`SELECT authority_id, title, cents FROM sale_tax WHERE sale_id = ?`).all(s.id) as { authority_id: number; title: string; cents: number }[];
+  const pay = db.prepare(`SELECT * FROM payments WHERE sale_id = ?`).get(s.id) as Record<string, any>;
+  return {
+    receiptNo: s.receipt_no, createdAt: s.created_at, cashier: s.cashier, store: loadStore(db),
+    lines: lines.map((l) => ({ name: l.name, qty: l.qty, unitCents: l.unit_cents, grossCents: l.gross_cents, discountCents: l.discount_cents })),
+    totals: { subtotalCents: s.subtotal_cents, discountCents: s.discount_cents, taxCents: s.tax_cents, totalCents: s.total_cents,
+      taxLines: taxLines.map((t) => ({ authorityId: t.authority_id, title: t.title, cents: t.cents })), ageRequired: null },
+    payment: { tender: pay.tender, amountCents: pay.amount_cents, tenderedCents: pay.tendered_cents, changeCents: pay.change_cents, reference: pay.reference },
+  };
 }
 
 function buildLine(db: DB, l: SaleLineInput, i: number): TicketLine {

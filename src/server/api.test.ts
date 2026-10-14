@@ -181,3 +181,56 @@ describe('holds, drawer, barcodes, audit', () => {
     expect((await post('/api/login', { pin: '0000' })).status).toBe(401);
   });
 });
+
+describe('voids, refunds and the Z report', () => {
+  const ring = async (qty = 2) => {
+    const res = await post('/api/sales', { cashier: 'Dee', discountPct: 0, lines: [{ kind: 'item', itemId: item('Cola').id, qty }], payment: { tender: 'cash', tenderedCents: 2000 } });
+    return (await res.json()) as Receipt;
+  };
+  const stock = () => (db.prepare(`SELECT qty_on_hand q FROM items WHERE id = ?`).get(item('Cola').id) as { q: number }).q;
+
+  it('voids a sale with a manager PIN, puts stock back, and drops it from the report', async () => {
+    const before = stock();
+    const r = await ring(2);
+    expect(stock()).toBe(before - 2);
+    const denied = await post(`/api/sales/${r.receiptNo}/void`, { pin: '1111', cashier: 'Dee', reason: 'wrong item' });
+    expect(denied.status).toBe(403);
+    const ok = await post(`/api/sales/${r.receiptNo}/void`, { pin: '2222', cashier: 'Dee', reason: 'wrong item' });
+    expect(ok.status).toBe(200);
+    expect(stock()).toBe(before);
+    const again = await post(`/api/sales/${r.receiptNo}/void`, { pin: '2222', cashier: 'Dee', reason: 'x' });
+    expect(again.status).toBe(409);
+    const list = (await (await fetch(base + '/api/sales')).json()) as { receiptNo: string; voided: boolean }[];
+    expect(list.find((s) => s.receiptNo === r.receiptNo)?.voided).toBe(true);
+    const day = (await (await fetch(base + '/api/reports/day')).json()) as { voids: { count: number } };
+    expect(day.voids.count).toBeGreaterThanOrEqual(1);
+  });
+
+  it('refunds part of a sale with proportional tax and refuses over-refunds', async () => {
+    const r = await ring(2);
+    const list = (await (await fetch(base + '/api/sales')).json()) as { receiptNo: string; lines: { id: number; qty: number }[] }[];
+    const lineId = list.find((s) => s.receiptNo === r.receiptNo)!.lines[0]!.id;
+    const tooMany = await post(`/api/sales/${r.receiptNo}/refund`, { pin: '2222', cashier: 'Dee', reason: 'bad', lines: [{ id: lineId, qty: 3 }] });
+    expect(tooMany.status).toBe(400);
+    const one = await post(`/api/sales/${r.receiptNo}/refund`, { pin: '2222', cashier: 'Dee', reason: 'bad', lines: [{ id: lineId, qty: 1 }] });
+    expect(one.status).toBe(200);
+    const body = (await one.json()) as { totalCents: number; tender: string };
+    expect(body.totalCents).toBe(229 + 3); // half of 458, plus half of the 5c tax rounded to 3
+    const rest = await post(`/api/sales/${r.receiptNo}/refund`, { pin: '2222', cashier: 'Dee', reason: 'bad', lines: [{ id: lineId, qty: 2 }] });
+    expect(rest.status).toBe(400);
+    const cannotVoid = await post(`/api/sales/${r.receiptNo}/void`, { pin: '2222', cashier: 'Dee', reason: 'x' });
+    expect(cannotVoid.status).toBe(409);
+  });
+
+  it('closes the day with a Z report and blocks voids afterwards', async () => {
+    const r = await ring(1);
+    const z = await post('/api/reports/z', { pin: '3333', cashier: 'Owner', print: false });
+    expect(z.status).toBe(200);
+    const body = (await z.json()) as { report: { title: string; sales: { count: number }; byCategory: { category: string }[] }; printed: boolean };
+    expect(body.report.title).toBe('Z REPORT');
+    expect(body.report.sales.count).toBeGreaterThanOrEqual(1);
+    expect(body.printed).toBe(false);
+    const after = await post(`/api/sales/${r.receiptNo}/void`, { pin: '2222', cashier: 'Dee', reason: 'late' });
+    expect(after.status).toBe(409);
+  });
+});
