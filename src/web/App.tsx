@@ -338,7 +338,7 @@ export function App() {
   // ---------- render ----------
   if (loadError) return <div className="login"><div className="modal"><h2>Cannot start</h2><div className="err">{loadError}</div></div></div>;
   if (!boot) return <div className="login"><div className="hint">Loading…</div></div>;
-  if (!user) return <Login store={boot.store.name} onLogin={setUser} />;
+  if (!user) return <Login store={boot.store.name} version={boot.version} onLogin={setUser} />;
 
   const page = boot.pages.find((p) => p.id === pageId) ?? boot.pages[0];
   const allButtons = boot.pages.flatMap((p) => p.buttons);
@@ -365,7 +365,7 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div><span className="brand">{boot.store.name}</span><span className="sub">Register 1</span></div>
+        <div><span className="brand">{boot.store.name}</span><span className="sub">Register 1</span><span className="sub" data-testid="version">v{boot.version}</span></div>
         <div className="topbar-right">
           {updateReady && <span className="pill" style={{ background: '#1c4a3c', color: '#bff0dc' }}>Update {updateReady} ready</span>}
           <span className="pill">Cashier: {user.name}</span>
@@ -578,7 +578,7 @@ export function App() {
   );
 }
 
-function Login({ store, onLogin }: { store: string; onLogin: (u: User) => void }) {
+function Login({ store, version, onLogin }: { store: string; version: string; onLogin: (u: User) => void }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const press = (k: string) => {
@@ -595,7 +595,7 @@ function Login({ store, onLogin }: { store: string; onLogin: (u: User) => void }
     <div className="login">
       <div className="modal">
         <h2>{store}</h2>
-        <div className="hint">Enter your PIN to start.</div>
+        <div className="hint">Enter your PIN to start. <span style={{ opacity: 0.6 }}>v{version}</span></div>
         <div className="dots" aria-label={`${pin.length} digits entered`}>
           {Array.from({ length: Math.max(4, pin.length) }).map((_, i) => <i key={i} className={i < pin.length ? 'f' : ''} />)}
         </div>
