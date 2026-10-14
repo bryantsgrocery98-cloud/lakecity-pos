@@ -1,7 +1,7 @@
 {
-  "version": "0.3.1",
-  "file": "lakecity-pos-0.3.1.zip",
-  "sha256": "fe0691b39b28d690cc933a3a614a79869b1996d3e72a83e529626d7957aa8694",
-  "notes": "Updates come from GitHub; nothing to upload by hand",
-  "builtAt": "2026-10-14T01:43:46.097Z"
+  "version": "0.4.0",
+  "file": "lakecity-pos-0.4.0.zip",
+  "sha256": "5cb1548a4500dc4050bcaae036307f2424272676a89de8f1561b600bac804cbe",
+  "notes": "Price book import: load the store's real products and one-click buttons",
+  "builtAt": "2026-10-14T01:56:59.971Z"
 }
