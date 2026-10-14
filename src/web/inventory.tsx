@@ -27,6 +27,7 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
   const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState('');
   const [update, setUpdate] = useState<{ current: string; latest: string | null; state: string; message: string } | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const load = () => api<InventoryItem[]>('/api/items').then(setItems).catch((e: Error) => setMsg(e.message));
   useEffect(() => { load(); api<typeof update>('/api/update/status').then(setUpdate).catch(() => {}); }, []);
@@ -78,6 +79,7 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
         <div><span className="brand">Inventory</span><span className="sub">{items.filter((i) => i.active).length} items · stock at shelf price {formatCents(stockValue)}</span></div>
         <div className="topbar-right">
           <span className="pill" title={update?.message ?? ''}>v{version}{update?.latest && update.latest !== version ? ` · ${update.latest} available` : ''}</span>
+          <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setImporting(true)}><Icon name="upload" size={20} /> Import price book</button>
           <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => { setAdding(true); setSel(null); }}><Icon name="plus" size={20} /> New item</button>
           <button className="btn btn-sm btn-primary" onClick={onClose}>Back to register</button>
         </div>
@@ -154,6 +156,97 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
           )}
         </aside>
       </div>
+      {importing && <ImportModal pin={pin} cashier={cashier} onClose={() => setImporting(false)} onDone={() => { setImporting(false); load().then(() => onChanged()); }} />}
+    </div>
+  );
+}
+
+type Preview = {
+  counts: { rows: number; items: number; buttons: number; zeroPrice: number; negativeStock: number; noCost: number; byDepartment: Record<string, number> };
+  warnings: { name: string; note: string }[]; skipped: { name: string; reason: string }[]; pages: string[]; demoCount: number; existing: number;
+  sample: { name: string; size: string | null; priceCents: number; category: string; authority: string | null; qty: number }[];
+};
+
+function ImportModal({ pin, cashier, onClose, onDone }: { pin: string; cashier: string; onClose: () => void; onDone: () => void }) {
+  const [csv, setCsv] = useState<string | null>(null);
+  const [fileName, setFileName] = useState('');
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<{ added: number; updated: number; buttons: number; removedDemo: number } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const pick = async (f: File) => {
+    setError(''); setBusy(true); setFileName(f.name);
+    try {
+      const text = await f.text();
+      setCsv(text);
+      setPreview(await api<Preview>('/api/import/pricebook/preview', { pin, csv: text }));
+    } catch (e) { setError((e as Error).message); setPreview(null); } finally { setBusy(false); }
+  };
+  const run = async () => {
+    if (!csv || !preview) return;
+    setBusy(true); setError('');
+    try { setResult(await api('/api/import/pricebook', { pin, cashier, csv, replaceDemo: preview.demoCount > 0 })); }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal title="Import price book" onClose={onClose} wide>
+      {result ? (
+        <>
+          <div className="inv-msg" style={{ margin: 0, background: '#e6f4ea', color: '#0b4a33', fontSize: 18 }}>
+            Done. {result.added} products added, {result.updated} updated, {result.buttons} one-click buttons set up{result.removedDemo ? `, ${result.removedDemo} demo products removed` : ''}.
+          </div>
+          <div className="hint">Products have no barcodes yet. The first time each one is scanned at the register, pick it from the list and it is linked from then on.</div>
+          <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} onClick={onDone}>Back to inventory</button>
+        </>
+      ) : (
+        <>
+          <div className="hint">Choose the CSV export from the old register (the file called Pricebook_Download…). Nothing changes until you press Import.</div>
+          <div className="quick" style={{ gridTemplateColumns: '1fr auto' }}>
+            <div className="field" style={{ minHeight: 52 }}><span className="field-value" style={{ fontWeight: 500 }}>{fileName || 'No file chosen'}</span></div>
+            <button className="btn" disabled={busy} onClick={() => fileRef.current?.click()}>Choose file</button>
+          </div>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) pick(f); e.target.value = ''; }} />
+          {busy && <div className="hint">Reading…</div>}
+          {error && <div className="err" role="alert">{error}</div>}
+          {preview && (
+            <>
+              <div className="quick" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+                <Stat label="Products" value={preview.counts.items} />
+                <Stat label="One-click buttons" value={preview.counts.buttons} />
+                <Stat label="Priced at $0" value={preview.counts.zeroPrice} warn={preview.counts.zeroPrice > 0} />
+                <Stat label="Negative stock" value={preview.counts.negativeStock} warn={preview.counts.negativeStock > 0} />
+              </div>
+              <div className="editor-label">BY DEPARTMENT</div>
+              <div className="chips">{Object.entries(preview.counts.byDepartment).map(([d, n]) => <span key={d} className="chip chip-static">{d}: {n}</span>)}</div>
+              {preview.demoCount > 0 && <div className="inv-msg" style={{ margin: 0 }}>The {preview.demoCount} demo products will be removed and replaced by the real ones. Sales already rung stay in the reports.</div>}
+              {preview.existing > 0 && <div className="hint">{preview.existing} products from an earlier import will be updated in place; their barcodes and pictures are kept.</div>}
+              {preview.skipped.length > 0 && <div className="hint">Skipped: {preview.skipped.map((s) => `${s.name} (${s.reason})`).join('; ')}</div>}
+              {preview.warnings.length > 0 && (
+                <>
+                  <div className="editor-label">TO FIX AFTER IMPORT ({preview.warnings.length})</div>
+                  <div className="items-scroll" style={{ maxHeight: 180 }}>
+                    <table className="rep"><tbody>{preview.warnings.map((w, i) => <tr key={i}><td>{w.name}</td><td className="hint">{w.note}</td></tr>)}</tbody></table>
+                  </div>
+                </>
+              )}
+              <div className="hint">Tax: Alcohol and Tobacco at 8%, Snack/Drinks/Food at 1%, Household and Regulars at 8% (Grocery All). VERIFY WITH SC DEPARTMENT OF REVENUE.</div>
+              <button className="btn btn-primary btn-block" style={{ minHeight: 62, fontSize: 20 }} disabled={busy} onClick={run}>Import {preview.counts.items} products</button>
+            </>
+          )}
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function Stat({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
+  return (
+    <div className="field" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2, background: warn ? '#fff6d9' : '#fff' }}>
+      <span className="field-label">{label}</span>
+      <span className="num" style={{ fontSize: 26, fontWeight: 700 }}>{value}</span>
     </div>
   );
 }

@@ -28,6 +28,7 @@ export function Icon({ name, size = 24 }: { name: string; size?: number }) {
     case 'discount': return <svg {...p}><path d="M19 5L5 19" /><circle cx="7" cy="7" r="2" /><circle cx="17" cy="17" r="2" /></svg>;
     case 'sound': return <svg {...p}><path d="M4 10v4h4l5 4V6l-5 4z" /><path d="M16 9a4 4 0 0 1 0 6" /><path d="M18.5 6.5a7.5 7.5 0 0 1 0 11" /></svg>;
     case 'mute': return <svg {...p}><path d="M4 10v4h4l5 4V6l-5 4z" /><path d="M17 9l4 6M21 9l-4 6" /></svg>;
+    case 'upload': return <svg {...p}><path d="M12 16V4" /><path d="M7 9l5-5 5 5" /><path d="M4 20h16" /></svg>;
     case 'plus': return <svg {...p}><path d="M12 5v14M5 12h14" /></svg>;
     case 'edit': return <svg {...p}><path d="M4 20h4l10-10-4-4L4 16z" /><path d="M13 7l4 4" /></svg>;
     case 'image': return <svg {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.8" /><path d="M21 16l-5-5-8 8" /></svg>;

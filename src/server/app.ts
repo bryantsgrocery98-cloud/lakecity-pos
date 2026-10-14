@@ -6,6 +6,7 @@ import type { Authority } from '../core/tax.js';
 import { computeTotals, lotteryLabel, type TicketLine } from '../core/ticket.js';
 import { workdayFor } from '../core/workday.js';
 import type { createUpdater } from './updater.js';
+import { applyImport, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
 import type {
   AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
 } from '../core/types.js';
@@ -359,6 +360,27 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     fs.rmSync(path.join(imagesDir, `${id}.jpg`), { force: true });
     db.prepare(`UPDATE items SET image_version = 0 WHERE id = ?`).run(id);
     res.json({ ok: true });
+  }));
+
+  // ---------- price book import ----------
+  const importBody = express.json({ limit: '20mb' });
+  app.post('/api/import/pricebook/preview', importBody, wrap((req, res) => {
+    const { pin, csv } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed to import.');
+    const rows = parseCsv(String(csv ?? ''));
+    if (!rows.length || !looksLikePricebook(Object.keys(rows[0]!))) throw new HttpError(400, 'That file does not look like the price book export (Upc, Department, cents, Name…).');
+    const plan = planImport(rows);
+    const demoCount = (db.prepare(`SELECT COUNT(*) AS n FROM items WHERE external_id IS NULL`).get() as { n: number }).n;
+    const existing = (db.prepare(`SELECT COUNT(*) AS n FROM items WHERE external_id IS NOT NULL`).get() as { n: number }).n;
+    res.json({ counts: plan.counts, warnings: plan.warnings.slice(0, 200), skipped: plan.skipped, pages: plan.pages, demoCount, existing,
+      sample: plan.items.slice(0, 8).map((i) => ({ name: i.name, size: i.size, priceCents: i.priceCents, category: i.category, authority: i.authorityTitle, qty: i.qtyOnHand })) });
+  }));
+  app.post('/api/import/pricebook', importBody, wrap((req, res) => {
+    const { pin, csv, cashier, replaceDemo } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed to import.');
+    const rows = parseCsv(String(csv ?? ''));
+    if (!rows.length || !looksLikePricebook(Object.keys(rows[0]!))) throw new HttpError(400, 'That file does not look like the price book export.');
+    res.json(applyImport(db, planImport(rows), String(cashier ?? ''), !!replaceDemo));
   }));
 
   // ---------- updates ----------
