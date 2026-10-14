@@ -1,7 +1,7 @@
 {
-  "version": "0.6.0",
-  "file": "lakecity-pos-0.6.0.zip",
-  "sha256": "a7d81e98f6d6a019775d9bca5d8974906d096a532e17d027b6462684a92aeb3a",
-  "notes": "Sign in once (role decides access), receipt text settings, screen reloads itself after updates, no restarts mid-ticket",
-  "builtAt": "2026-10-14T02:59:27.769Z"
+  "version": "0.6.1",
+  "file": "lakecity-pos-0.6.1.zip",
+  "sha256": "8a25e0bb465c9bbe411e1d88a07e08a5f2b589e8be4e7806656d05dee4361adb",
+  "notes": "Desktop icon, starts at sign-in, runs without a console window, log file",
+  "builtAt": "2026-10-14T03:35:20.930Z"
 }
