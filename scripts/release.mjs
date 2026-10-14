@@ -13,7 +13,7 @@ const notes = process.argv.slice(2).join(' ');
 
 execSync('npx vite build', { cwd: root, stdio: 'inherit' });
 
-const include = ['src', 'dist', 'package.json', 'package-lock.json', 'start-pos.bat', 'start-pos.command', 'launch.mjs', 'README.md', 'HARDWARE.md', 'scripts'];
+const include = ['src', 'dist', 'package.json', 'package-lock.json', 'start-pos.bat', 'start-pos.command', 'start-pos-hidden.vbs', 'setup-windows.bat', 'setup-windows.ps1', 'pos.ico', 'launch.mjs', 'README.md', 'HARDWARE.md', 'scripts'];
 const zip = new AdmZip();
 for (const name of include) {
   const p = path.join(root, name);

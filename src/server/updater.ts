@@ -24,7 +24,7 @@ export type UpdaterOptions = {
 };
 
 const KEEP = new Set(['data', 'node_modules', 'updates', '.git']); // never replaced or deleted
-const REPLACE = ['src', 'dist', 'package.json', 'package-lock.json', 'start-pos.bat', 'start-pos.command', 'launch.mjs', 'README.md', 'HARDWARE.md'];
+const REPLACE = ['src', 'dist', 'package.json', 'package-lock.json', 'start-pos.bat', 'start-pos.command', 'start-pos-hidden.vbs', 'setup-windows.bat', 'setup-windows.ps1', 'pos.ico', 'launch.mjs', 'README.md', 'HARDWARE.md', 'scripts'];
 
 export function compareVersions(a: string, b: string): number {
   const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
