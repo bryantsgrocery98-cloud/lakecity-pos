@@ -1,0 +1,383 @@
+import { useEffect, useState } from 'react';
+import { formatCents, centsFromKeypadDigits } from '../core/money';
+import { evaluateBirthDate, parseAamvaDate } from '../core/aamva';
+import type { HoldDto, ItemDto, Receipt } from '../core/types';
+import { api } from './api';
+import { Icon, Keypad, Modal, OnScreenKeyboard } from './parts';
+
+export type AgeInfo = {
+  method: 'scan' | 'manual_dob' | 'manager_override';
+  ageYears: number | null;
+  expired: boolean;
+  managerPin?: string;
+};
+
+/** Collects keypad digits. Money keypads treat the digits as cents (typing 2 0 0 0 gives $20.00). */
+function useDigits(max: number) {
+  const [digits, setDigits] = useState('');
+  const press = (k: string) => {
+    if (k === 'clear') setDigits('');
+    else if (k === 'back') setDigits((d) => d.slice(0, -1));
+    else setDigits((d) => (d + k).replace(/^0+(?=\d)/, '').slice(0, max));
+  };
+  return { digits, press, set: setDigits };
+}
+
+export function CashModal({ total, onClose, onComplete, error, busy }: {
+  total: number; onClose: () => void; onComplete: (tendered: number) => void; error: string; busy: boolean;
+}) {
+  const { digits, press, set } = useDigits(7);
+  const tendered = centsFromKeypadDigits(digits);
+  const change = tendered - total;
+  const bills = [100, 500, 1000, 2000, 5000, 10000];
+  return (
+    <Modal title="Cash" onClose={onClose}>
+      <div className="hint">Total due <b className="num" style={{ fontSize: 24, color: 'var(--ink)' }}>{formatCents(total)}</b></div>
+      <div className="quick">
+        <button className="btn btn-dark" onClick={() => set(String(total))}>Exact</button>
+        {bills.map((b) => <button key={b} className="btn" onClick={() => set(String(b))}>{formatCents(b).replace('.00', '')}</button>)}
+      </div>
+      <div className="display num" aria-label="Cash given">{formatCents(tendered)}</div>
+      <Keypad onKey={(k) => { if (k === '00') { press('0'); press('0'); } else press(k); }} doubleZero />
+      <div className={`change ${change < 0 ? 'short' : ''}`}>
+        <span>{change < 0 ? 'Still needed' : 'Change due'}</span>
+        <span className="num">{formatCents(Math.abs(change))}</span>
+      </div>
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={change < 0 || busy}
+        onClick={() => onComplete(tendered)}>Complete sale</button>
+    </Modal>
+  );
+}
+
+export function CardModal({ total, onClose, onComplete, error, busy }: {
+  total: number; onClose: () => void; onComplete: (ref: string) => void; error: string; busy: boolean;
+}) {
+  const { digits, press } = useDigits(12);
+  return (
+    <Modal title="Card" onClose={onClose}>
+      <div className="hint">
+        Run <b>{formatCents(total)}</b> on the card machine. When it approves, type the last 4 digits of the card or the approval code.
+      </div>
+      <div className="display plain num">{digits || '—'}</div>
+      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} />
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={digits.length < 3 || busy}
+        onClick={() => onComplete(digits)}>Card approved, complete sale</button>
+    </Modal>
+  );
+}
+
+export function AskModal({ title, onClose, onAdd }: { title: string; onClose: () => void; onAdd: (cents: number) => void }) {
+  const { digits, press } = useDigits(7);
+  const cents = centsFromKeypadDigits(digits);
+  return (
+    <Modal title={title} onClose={onClose}>
+      <div className="hint">Type the price. Digits fill in from the right, so 4 5 0 makes $4.50.</div>
+      <div className="display num">{formatCents(cents)}</div>
+      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero />
+      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={cents <= 0} onClick={() => onAdd(cents)}>Add to ticket</button>
+    </Modal>
+  );
+}
+
+export function LotteryModal({ onClose, onAdd }: { onClose: () => void; onAdd: (qty: number, unitCents: number) => void }) {
+  const [unit, setUnit] = useState(100);
+  const [qty, setQty] = useState(1);
+  const [other, setOther] = useState(false);
+  const { digits, press } = useDigits(5);
+  const amount = other ? centsFromKeypadDigits(digits) : unit;
+  const presets = [100, 200, 300, 500, 1000, 2000];
+  return (
+    <Modal title="Lottery" onClose={onClose}>
+      <div className="amounts">
+        {presets.map((p) => (
+          <button key={p} className={`btn ${!other && unit === p ? 'on' : ''}`} onClick={() => { setOther(false); setUnit(p); }}>
+            {formatCents(p).replace('.00', '')}
+          </button>
+        ))}
+      </div>
+      <button className={`btn ${other ? 'btn-dark' : ''}`} onClick={() => setOther(true)}>Other amount…</button>
+      {other && (
+        <>
+          <div className="display num">{formatCents(amount)}</div>
+          <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero />
+        </>
+      )}
+      <div className="sub-label">HOW MANY TICKETS</div>
+      <div className="stepper">
+        <button className="btn" aria-label="Fewer tickets" onClick={() => setQty(Math.max(1, qty - 1))}>−</button>
+        <div className="val num">{qty}</div>
+        <button className="btn" aria-label="More tickets" onClick={() => setQty(Math.min(99, qty + 1))}>+</button>
+      </div>
+      <div className="summary">
+        <b>Lottery {qty} x {formatCents(amount)}</b>
+        <span className="num">{formatCents(amount * qty)}</span>
+        <div className="hint" style={{ color: 'inherit' }}>No tax. Counted separately from store sales.</div>
+      </div>
+      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={amount <= 0} onClick={() => onAdd(qty, amount)}>Add to ticket</button>
+    </Modal>
+  );
+}
+
+export function PayoutModal({ onClose, onSave }: { onClose: () => void; onSave: (cents: number) => void }) {
+  const { digits, press } = useDigits(7);
+  const cents = centsFromKeypadDigits(digits);
+  return (
+    <Modal title="Lottery payout" onClose={onClose}>
+      <div className="hint">Cash paid out to a winner. This is counted against the drawer at the end of the shift.</div>
+      <div className="display num">{formatCents(cents)}</div>
+      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero />
+      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={cents <= 0} onClick={() => onSave(cents)}>Record payout</button>
+    </Modal>
+  );
+}
+
+export function QtyModal({ current, onClose, onSet }: { current: number; onClose: () => void; onSet: (n: number) => void }) {
+  const { digits, press } = useDigits(5);
+  const n = digits === '' ? current : parseInt(digits, 10);
+  return (
+    <Modal title="Quantity" onClose={onClose}>
+      <div className="display num">{n}</div>
+      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} />
+      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={n < 1} onClick={() => onSet(n)}>Set quantity</button>
+    </Modal>
+  );
+}
+
+/** Checks a manager or owner PIN with the server, then hands the PIN back. */
+export function PinModal({ title, hint, onClose, onOk }: { title: string; hint: string; onClose: () => void; onOk: (pin: string) => void }) {
+  const { digits, press } = useDigits(8);
+  const [error, setError] = useState('');
+  const submit = async () => {
+    try {
+      const u = await api<{ role: string }>('/api/login', { pin: digits });
+      if (u.role === 'cashier') { setError('That PIN is not a manager PIN.'); return; }
+      onOk(digits);
+    } catch (e) { setError((e as Error).message); }
+  };
+  return (
+    <Modal title={title} onClose={onClose}>
+      <div className="hint">{hint}</div>
+      <div className="dots" aria-label={`${digits.length} digits entered`}>{Array.from({ length: Math.max(4, digits.length) }).map((_, i) => <i key={i} className={i < digits.length ? 'f' : ''} />)}</div>
+      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} />
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={digits.length < 4} onClick={submit}>OK</button>
+    </Modal>
+  );
+}
+
+export function IdModal({ required, info, scanIdOnly, onClose, onManual, onManager, onRemoveRestricted }: {
+  required: number; info: AgeInfo | null; scanIdOnly: boolean; onClose: () => void;
+  onManual: () => void; onManager: () => void; onRemoveRestricted: () => void;
+}) {
+  const passed = info && (info.method === 'manager_override' || (info.ageYears !== null && info.ageYears >= required && !info.expired));
+  const under = info && info.ageYears !== null && info.ageYears < required;
+  const expired = info && info.expired && !under;
+  if (info && passed) {
+    return (
+      <Modal title="ID check" onClose={onClose}>
+        <div className="result good">
+          <div className="head"><Icon name="ok" size={52} /><div className="big">OK · {required}+</div>
+            <div className="age">{info.method === 'manager_override' ? 'Approved by a manager' : `Customer is ${info.ageYears}`}</div></div>
+        </div>
+        <div className="hint">Nothing from the ID is saved. Only the result, time, and cashier are logged. This tool checks age only. The cashier must still look at the ID.</div>
+        <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} onClick={onClose}>Continue</button>
+      </Modal>
+    );
+  }
+  if (info && under) {
+    return (
+      <Modal title="ID check">
+        <div className="result bad">
+          <div className="head"><Icon name="ban" size={52} /><div className="big">UNDER AGE</div><div className="age">Do not sell · customer is {info.ageYears}, needs {required}+</div></div>
+        </div>
+        <button className="btn btn-dark btn-block" style={{ minHeight: 60 }} onClick={onRemoveRestricted}>Remove age-restricted items</button>
+        <button className="btn btn-block" onClick={onClose}>Back to ticket</button>
+      </Modal>
+    );
+  }
+  if (info && expired) {
+    return (
+      <Modal title="ID check">
+        <div className="result warn">
+          <div className="head"><Icon name="id" size={52} /><div className="big">ID EXPIRED</div><div className="age">Age is {info.ageYears}. Check this ID by hand.</div></div>
+        </div>
+        <button className="btn btn-dark btn-block" onClick={onManager}>Manager approves anyway</button>
+        <button className="btn btn-block" onClick={onClose}>Back to ticket</button>
+      </Modal>
+    );
+  }
+  return (
+    <Modal title="Scan ID" onClose={onClose}>
+      <div style={{ height: 150, borderRadius: 16, background: 'var(--bg)', border: '2px dashed #7c8c99', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8, color: 'var(--ink-2)' }}>
+        <Icon name="id" size={56} />
+        <div style={{ fontSize: 18, textAlign: 'center', padding: '0 16px' }}>Scan the barcode on the back of the ID</div>
+      </div>
+      <div className="hint">Needed: {required}+ for items on this ticket. One scan covers the whole ticket.</div>
+      <button className="btn btn-block" onClick={onManual}>Type birth date{scanIdOnly ? ' (manager PIN)' : ''}</button>
+      <button className="btn btn-block" onClick={onManager}>Manager approves (PIN)</button>
+      <div className="hint">This tool checks age only. The cashier must still look at the ID.</div>
+      <button className="btn btn-quiet btn-block" onClick={onClose}>Cancel</button>
+    </Modal>
+  );
+}
+
+export function DobModal({ onClose, onDone }: { onClose: () => void; onDone: (r: { ageYears: number; expired: boolean }) => void }) {
+  const { digits, press } = useDigits(8);
+  const [error, setError] = useState('');
+  const shown = `${digits.slice(0, 2).padEnd(2, '–')}/${digits.slice(2, 4).padEnd(2, '–')}/${digits.slice(4, 8).padEnd(4, '–')}`;
+  const submit = () => {
+    const iso = parseAamvaDate(digits);
+    const r = iso ? evaluateBirthDate(iso, null) : null;
+    if (!r || !r.ok) { setError(r && !r.ok ? r.reason : 'Enter the birth date as month, day, year.'); return; }
+    onDone({ ageYears: r.ageYears, expired: false });
+  };
+  return (
+    <Modal title="Birth date" onClose={onClose}>
+      <div className="hint">Type month, day, and 4-digit year from the ID. Example: 0 7 1 5 1 9 9 0</div>
+      <div className="display plain num">{shown}</div>
+      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} />
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={digits.length !== 8} onClick={submit}>Check age</button>
+    </Modal>
+  );
+}
+
+export function LinkModal({ code, items, onClose, onLink, error }: {
+  code: string; items: ItemDto[]; onClose: () => void; onLink: (itemId: number) => void; error: string;
+}) {
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState<number | null>(null);
+  const matches = items.filter((i) => !i.hasBarcode && `${i.name} ${i.size ?? ''}`.toLowerCase().includes(q.toLowerCase())).slice(0, 5);
+  return (
+    <Modal title="Link this barcode" onClose={onClose} wide>
+      <div style={{ padding: '10px 14px', borderRadius: 12, background: 'var(--warn-bg)', border: '2px solid var(--warn-line)', color: 'var(--warn-ink)' }}>
+        <div className="hint" style={{ color: 'inherit', fontWeight: 600 }}>SCANNED, NOT IN THE SYSTEM YET</div>
+        <div className="num" style={{ fontSize: 26, letterSpacing: '.04em' }}>{code}</div>
+      </div>
+      <div className="display plain" style={{ height: 52, fontSize: 20, justifyContent: 'flex-start', fontWeight: 400 }}>{q || <span style={{ color: 'var(--ink-3)' }}>Search for the item…</span>}</div>
+      {matches.map((m) => (
+        <button key={m.id} className={`pick ${sel === m.id ? 'on' : ''}`} onClick={() => setSel(m.id)}>
+          <b>{m.name} {m.size ?? ''}</b><small>{formatCents(m.priceCents)} · {m.category} · no barcode yet</small>
+        </button>
+      ))}
+      {matches.length === 0 && <div className="hint">No items without a barcode match that search.</div>}
+      <OnScreenKeyboard onChar={(c) => setQ((s) => s + c)} onBack={() => setQ((s) => s.slice(0, -1))} onClear={() => setQ('')} />
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={sel === null} onClick={() => sel !== null && onLink(sel)}>Save and add to ticket</button>
+    </Modal>
+  );
+}
+
+export function RecallModal({ holds, onClose, onRecall }: { holds: HoldDto[]; onClose: () => void; onRecall: (h: HoldDto) => void }) {
+  return (
+    <Modal title="Held sales" onClose={onClose}>
+      {holds.length === 0 && <div className="hint">Nothing is on hold.</div>}
+      {holds.map((h) => {
+        const lines = h.lines as { name: string; qty: number; unitCents: number }[];
+        const sum = lines.reduce((s, l) => s + l.qty * l.unitCents, 0);
+        return (
+          <button key={h.id} className="pick" onClick={() => onRecall(h)}>
+            <b>{h.label} · {formatCents(sum)}</b>
+            <small>{lines.map((l) => `${l.qty} × ${l.name}`).join(', ').slice(0, 90)}</small>
+          </button>
+        );
+      })}
+    </Modal>
+  );
+}
+
+export function DiscountModal({ buttons, current, onClose, onPick }: { buttons: number[]; current: number; onClose: () => void; onPick: (pct: number) => void }) {
+  return (
+    <Modal title="Ticket discount" onClose={onClose}>
+      <div className="hint">Applies to every line before tax. Lottery is never discounted.</div>
+      <div className="amounts">
+        {buttons.map((b) => <button key={b} className={`btn ${current === b ? 'on' : ''}`} onClick={() => onPick(b)}>{b}%</button>)}
+      </div>
+      <button className="btn btn-block" onClick={() => onPick(0)}>No discount</button>
+    </Modal>
+  );
+}
+
+export function ConfirmModal({ title, message, yes, onYes, onClose }: { title: string; message: string; yes: string; onYes: () => void; onClose: () => void }) {
+  return (
+    <Modal title={title}>
+      <div style={{ fontSize: 18, lineHeight: 1.4 }}>{message}</div>
+      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} onClick={onYes}>{yes}</button>
+      <button className="btn btn-quiet btn-block" onClick={onClose}>Go back</button>
+    </Modal>
+  );
+}
+
+export function ReceiptModal({ receipt, onDone }: { receipt: Receipt; onDone: () => void }) {
+  const when = new Date(receipt.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York' });
+  return (
+    <Modal title="Sale complete">
+      {receipt.payment.tender === 'cash' && receipt.payment.changeCents !== null && (
+        <div className="change"><span>Change due</span><span className="num">{formatCents(receipt.payment.changeCents)}</span></div>
+      )}
+      <div className="receipt" id="receipt">
+        <div className="c"><b>{receipt.store.name}</b><br />{receipt.store.address}{receipt.store.phone ? <><br />{receipt.store.phone}</> : null}</div>
+        <hr />
+        <div className="r"><span>{receipt.receiptNo}</span><span>{when}</span></div>
+        <div>Cashier: {receipt.cashier}</div>
+        <hr />
+        {receipt.lines.map((l, i) => (
+          <div key={i}>
+            <div className="r"><span>{l.name}</span><span>{formatCents(l.grossCents)}</span></div>
+            {l.qty > 1 && !l.name.startsWith('Lottery') && <div style={{ paddingLeft: 12 }}>{l.qty} @ {formatCents(l.unitCents)}</div>}
+            {l.discountCents > 0 && <div className="r" style={{ paddingLeft: 12 }}><span>Discount</span><span>-{formatCents(l.discountCents)}</span></div>}
+          </div>
+        ))}
+        <hr />
+        <div className="r"><span>Subtotal</span><span>{formatCents(receipt.totals.subtotalCents - receipt.totals.discountCents)}</span></div>
+        {receipt.totals.taxLines.map((t) => <div key={t.authorityId} className="r"><span>{t.title}</span><span>{formatCents(t.cents)}</span></div>)}
+        <div className="r"><b>TOTAL</b><b>{formatCents(receipt.totals.totalCents)}</b></div>
+        <hr />
+        {receipt.payment.tender === 'cash' ? (
+          <>
+            <div className="r"><span>Cash</span><span>{formatCents(receipt.payment.tenderedCents ?? 0)}</span></div>
+            <div className="r"><span>Change</span><span>{formatCents(receipt.payment.changeCents ?? 0)}</span></div>
+          </>
+        ) : <div className="r"><span>Card ref</span><span>{receipt.payment.reference}</span></div>}
+        <hr />
+        <div className="c">{receipt.store.footer}<br />{receipt.store.refundPolicy}</div>
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button className="btn" style={{ flex: 1 }} onClick={() => window.print()}>Print receipt</button>
+        <button className="btn btn-primary" style={{ flex: 2, minHeight: 60, fontSize: 20 }} onClick={onDone}>New sale</button>
+      </div>
+    </Modal>
+  );
+}
+
+type Today = {
+  workday: string; sales: { n: number; total: number; tax: number };
+  byCategory: { category: string; cents: number }[]; byAuthority: { title: string; cents: number }[]; noSales: number; lotterySales: number;
+};
+
+export function TodayModal({ onClose }: { onClose: () => void }) {
+  const [t, setT] = useState<Today | null>(null);
+  useEffect(() => { api<Today>('/api/reports/today').then(setT).catch(() => setT(null)); }, []);
+  return (
+    <Modal title="Today so far" onClose={onClose}>
+      {!t ? <div className="hint">Loading…</div> : (
+        <>
+          <div className="hint">Workday {t.workday}</div>
+          <table className="rep"><tbody>
+            <tr><td>Sales</td><td className="num">{t.sales.n}</td></tr>
+            <tr><td>Total taken (with tax)</td><td className="num">{formatCents(t.sales.total)}</td></tr>
+            <tr><td>Lottery (separate)</td><td className="num">{formatCents(t.lotterySales)}</td></tr>
+            <tr><td>No Sale opens</td><td className="num">{t.noSales}</td></tr>
+          </tbody></table>
+          <div className="sub-label">BY CATEGORY (BEFORE TAX)</div>
+          <table className="rep"><tbody>{t.byCategory.map((c) => <tr key={c.category}><td>{c.category}</td><td className="num">{formatCents(c.cents)}</td></tr>)}</tbody></table>
+          <div className="sub-label">TAX BY AUTHORITY</div>
+          <table className="rep"><tbody>{t.byAuthority.map((c) => <tr key={c.title}><td>{c.title}</td><td className="num">{formatCents(c.cents)}</td></tr>)}</tbody></table>
+          <div className="hint">For filing prep only. Verify rates with the SC Department of Revenue.</div>
+        </>
+      )}
+    </Modal>
+  );
+}

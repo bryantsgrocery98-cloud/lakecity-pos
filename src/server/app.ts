@@ -1,0 +1,445 @@
+import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { audit, getSetting, type DB } from './db.js';
+import type { Authority } from '../core/tax.js';
+import { computeTotals, lotteryLabel, type TicketLine } from '../core/ticket.js';
+import { workdayFor } from '../core/workday.js';
+import type { createUpdater } from './updater.js';
+import type {
+  AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
+} from '../core/types.js';
+
+class HttpError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
+type AuthRow = { id: number; title: string; type: 'tax' | 'fee'; rate_bp: number | null; flat_cents: number | null };
+
+function loadAuthorities(db: DB): Authority[] {
+  return (db.prepare(`SELECT * FROM authorities ORDER BY title`).all() as AuthRow[])
+    .map((r) => ({ id: r.id, title: r.title, type: r.type, rateBp: r.rate_bp, flatCents: r.flat_cents }));
+}
+
+function loadStore(db: DB): StoreDto {
+  return {
+    name: getSetting(db, 'store_name', 'My Store'),
+    address: getSetting(db, 'store_address', ''),
+    phone: getSetting(db, 'store_phone', ''),
+    footer: getSetting(db, 'receipt_footer', ''),
+    refundPolicy: getSetting(db, 'refund_policy', ''),
+  };
+}
+
+function isManagerPin(db: DB, pin: string | undefined): boolean {
+  if (!pin) return false;
+  const u = db.prepare(`SELECT role FROM users WHERE pin = ? AND active = 1`).get(pin) as { role: string } | undefined;
+  return !!u && (u.role === 'manager' || u.role === 'owner');
+}
+
+export type AppExtras = { updater?: ReturnType<typeof createUpdater>; version?: string; imagesDir?: string };
+
+export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
+  const app = express();
+  app.use(express.json({ limit: '6mb' }));
+  const imagesDir = extras.imagesDir ?? path.join(process.cwd(), 'data', 'images');
+  fs.mkdirSync(imagesDir, { recursive: true });
+  app.use('/images', express.static(imagesDir, { maxAge: '1h' }));
+
+  const wrap = (fn: (req: express.Request, res: express.Response) => unknown): express.RequestHandler =>
+    (req, res, next) => {
+      try { Promise.resolve(fn(req, res)).catch(next); } catch (e) { next(e); }
+    };
+
+  app.get('/api/bootstrap', wrap((_req, res) => {
+    const items = (db.prepare(`
+      SELECT i.*, EXISTS(SELECT 1 FROM barcodes b WHERE b.item_id = i.id) AS has_bc
+      FROM items i WHERE i.active = 1 ORDER BY i.name, i.size`).all() as Record<string, any>[])
+      .map((r): ItemDto => ({
+        id: r.id, name: r.name, size: r.size, priceCents: r.price_cents, category: r.category,
+        authorityId: r.authority_id, ageMin: r.age_min, color: r.color, frequent: !!r.frequent, hasBarcode: !!r.has_bc, imageVersion: r.image_version,
+      }));
+    const pages = (db.prepare(`SELECT id, name FROM pages ORDER BY pos`).all() as { id: number; name: string }[])
+      .map((p) => ({
+        ...p,
+        buttons: (db.prepare(`SELECT * FROM buttons WHERE page_id = ? ORDER BY pos`).all(p.id) as Record<string, any>[])
+          .map((b): ButtonDto => ({
+            id: b.id, name: b.name, priceCents: b.price_cents, priceMode: b.price_mode, authorityId: b.authority_id,
+            category: b.category, ageMin: b.age_min, shape: b.shape, fill: b.fill, border: b.border, textColor: b.text_color,
+          })),
+      }));
+    const body: Bootstrap = {
+      store: loadStore(db),
+      settings: {
+        discountButtons: getSetting(db, 'discount_buttons', '5,10,15,20').split(',').map(Number).filter((n) => n > 0 && n < 100),
+        warnQty: parseInt(getSetting(db, 'warn_qty', '99'), 10),
+        warnTotalCents: parseInt(getSetting(db, 'warn_total_cents', '99999'), 10),
+        scanIdOnly: getSetting(db, 'scan_id_only', 'true') === 'true',
+      },
+      authorities: loadAuthorities(db),
+      pages,
+      items,
+      holdCount: (db.prepare(`SELECT COUNT(*) AS n FROM holds`).get() as { n: number }).n,
+      version: extras.version ?? '0',
+    };
+    res.json(body);
+  }));
+
+  app.post('/api/login', wrap((req, res) => {
+    const u = db.prepare(`SELECT name, role FROM users WHERE pin = ? AND active = 1`).get(String(req.body?.pin ?? '')) as
+      { name: string; role: string } | undefined;
+    if (!u) throw new HttpError(401, 'That PIN did not match. Try again.');
+    audit(db, u.name, 'login');
+    res.json(u);
+  }));
+
+  app.get('/api/scan/:code', wrap((req, res) => {
+    const row = db.prepare(`SELECT item_id FROM barcodes WHERE code = ?`).get(req.params.code) as { item_id: number } | undefined;
+    if (!row) throw new HttpError(404, 'Barcode not found.');
+    res.json({ itemId: row.item_id });
+  }));
+
+  app.post('/api/barcodes/link', wrap((req, res) => {
+    const { code, itemId, cashier } = req.body ?? {};
+    if (typeof code !== 'string' || !/^[0-9A-Za-z\-]{4,64}$/.test(code)) throw new HttpError(400, 'That barcode looks wrong.');
+    if (!db.prepare(`SELECT 1 FROM items WHERE id = ? AND active = 1`).get(itemId)) throw new HttpError(400, 'Pick an item first.');
+    if (db.prepare(`SELECT 1 FROM barcodes WHERE code = ?`).get(code)) throw new HttpError(409, 'That barcode is already linked to an item.');
+    db.prepare(`INSERT INTO barcodes (code, item_id) VALUES (?, ?)`).run(code, itemId);
+    audit(db, String(cashier ?? 'unknown'), 'barcode_linked', `item ${itemId}`);
+    res.json({ ok: true });
+  }));
+
+  // ---------- sales ----------
+  app.post('/api/sales', wrap((req, res) => {
+    const input = req.body as SaleInput;
+    if (!input || !Array.isArray(input.lines) || input.lines.length === 0) throw new HttpError(400, 'The ticket is empty.');
+    const discountPct = Number.isInteger(input.discountPct) && input.discountPct >= 0 && input.discountPct < 100 ? input.discountPct : 0;
+    const authorities = loadAuthorities(db);
+    const lines = input.lines.map((l, i) => buildLine(db, l, i));
+    const { totals, perLine } = computeTotals(lines, authorities, discountPct);
+
+    if (totals.ageRequired !== null) checkAge(db, input.ageCheck, input.cashier, totals.ageRequired);
+
+    const pay = input.payment;
+    if (!pay || (pay.tender !== 'cash' && pay.tender !== 'card')) throw new HttpError(400, 'Choose how the customer is paying.');
+    let tendered: number | null = null;
+    let change: number | null = null;
+    let reference: string | null = null;
+    if (pay.tender === 'cash') {
+      tendered = Number.isInteger(pay.tenderedCents) ? (pay.tenderedCents as number) : 0;
+      if (tendered < totals.totalCents) throw new HttpError(400, 'The cash given is less than the total.');
+      change = tendered - totals.totalCents;
+    } else {
+      reference = String(pay.reference ?? '').trim().slice(0, 16);
+      if (!reference) throw new HttpError(400, 'Enter the approval code or last 4 digits from the card machine.');
+    }
+
+    const now = new Date();
+    const workday = workdayFor(now, getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00'));
+    const store = loadStore(db);
+
+    const receipt = db.transaction((): Receipt => {
+      const r = db.prepare(`INSERT INTO sales (receipt_no, created_at, workday, cashier, subtotal_cents, discount_cents, tax_cents, total_cents, discount_pct, age_check)
+        VALUES ('PENDING', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(now.toISOString(), workday, input.cashier, totals.subtotalCents, totals.discountCents, totals.taxCents, totals.totalCents,
+          discountPct, input.ageCheck ? `${input.ageCheck.method}:${input.ageCheck.result}` : null);
+      const saleId = Number(r.lastInsertRowid);
+      const receiptNo = `R${String(saleId).padStart(6, '0')}`;
+      db.prepare(`UPDATE sales SET receipt_no = ? WHERE id = ?`).run(receiptNo, saleId);
+
+      const insLine = db.prepare(`INSERT INTO sale_lines (sale_id, name, kind, qty, unit_cents, gross_cents, discount_cents, tax_cents, authority_id, category, age_min)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      const decStock = db.prepare(`UPDATE items SET qty_on_hand = qty_on_hand - ? WHERE id = ? AND qty_on_hand > 0`);
+      lines.forEach((l, i) => {
+        const p = perLine[i]!;
+        insLine.run(saleId, l.name, l.kind, l.qty, l.unitCents, p.grossCents, p.discountCents, p.taxCents, l.authorityId, l.category, l.ageMin);
+        if (l.itemId) decStock.run(l.qty, l.itemId);
+      });
+      const insTax = db.prepare(`INSERT INTO sale_tax (sale_id, authority_id, title, cents) VALUES (?, ?, ?, ?)`);
+      for (const t of totals.taxLines) insTax.run(saleId, t.authorityId, t.title, t.cents);
+      db.prepare(`INSERT INTO payments (sale_id, tender, amount_cents, tendered_cents, change_cents, reference) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(saleId, pay.tender, totals.totalCents, tendered, change, reference);
+      audit(db, input.cashier, 'sale', `${receiptNo} total ${totals.totalCents} ${pay.tender}`);
+
+      return {
+        receiptNo, createdAt: now.toISOString(), cashier: input.cashier, store,
+        lines: lines.map((l, i) => ({ name: l.name, qty: l.qty, unitCents: l.unitCents, grossCents: perLine[i]!.grossCents, discountCents: perLine[i]!.discountCents })),
+        totals,
+        payment: { tender: pay.tender, amountCents: totals.totalCents, tenderedCents: tendered, changeCents: change, reference },
+      };
+    })();
+
+    res.json(receipt);
+  }));
+
+  // ---------- holds ----------
+  app.get('/api/holds', wrap((_req, res) => {
+    const rows = db.prepare(`SELECT * FROM holds ORDER BY id`).all() as Record<string, any>[];
+    res.json(rows.map((r): HoldDto => ({
+      id: r.id, label: r.label, cashier: r.cashier, createdAt: r.created_at, discountPct: r.discount_pct, lines: JSON.parse(r.lines_json),
+    })));
+  }));
+
+  app.post('/api/holds', wrap((req, res) => {
+    const { label, lines, discountPct, cashier } = req.body ?? {};
+    if (!Array.isArray(lines) || lines.length === 0) throw new HttpError(400, 'There is nothing to hold.');
+    let name = typeof label === 'string' ? label.trim().slice(0, 40) : '';
+    if (!name) {
+      const labels = db.prepare(`SELECT label FROM holds`).all() as { label: string }[];
+      const max = labels.reduce((m, r) => Math.max(m, Number(/^Customer (\d+)$/.exec(r.label)?.[1] ?? 0)), 0);
+      name = `Customer ${max + 1}`;
+    }
+    const r = db.prepare(`INSERT INTO holds (label, lines_json, discount_pct, cashier, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(name, JSON.stringify(lines), Number(discountPct) || 0, String(cashier ?? ''), new Date().toISOString());
+    audit(db, String(cashier ?? ''), 'hold', name);
+    res.json({ id: Number(r.lastInsertRowid), label: name });
+  }));
+
+  app.delete('/api/holds/:id', wrap((req, res) => {
+    const row = db.prepare(`SELECT label FROM holds WHERE id = ?`).get(req.params.id) as { label: string } | undefined;
+    if (!row) throw new HttpError(404, 'That held sale is already gone.');
+    db.prepare(`DELETE FROM holds WHERE id = ?`).run(req.params.id);
+    audit(db, String(req.query.cashier ?? ''), 'recall', row.label);
+    res.json({ ok: true });
+  }));
+
+  // ---------- drawer and cash events ----------
+  app.post('/api/no-sale', wrap((req, res) => {
+    const { cashier, pin } = req.body ?? {};
+    if (getSetting(db, 'no_sale_requires_pin', 'false') === 'true' && !isManagerPin(db, pin)) {
+      throw new HttpError(403, 'A manager PIN is needed to open the drawer without a sale.');
+    }
+    db.prepare(`INSERT INTO cash_events (ts, cashier, type, amount_cents) VALUES (?, ?, 'no_sale', 0)`)
+      .run(new Date().toISOString(), String(cashier ?? ''));
+    audit(db, String(cashier ?? ''), 'no_sale');
+    res.json({ ok: true });
+  }));
+
+  app.post('/api/lottery-payout', wrap((req, res) => {
+    const { cashier, amountCents } = req.body ?? {};
+    if (!Number.isInteger(amountCents) || amountCents <= 0 || amountCents > 10_000_000) throw new HttpError(400, 'Enter the payout amount.');
+    db.prepare(`INSERT INTO cash_events (ts, cashier, type, amount_cents) VALUES (?, ?, 'lottery_payout', ?)`)
+      .run(new Date().toISOString(), String(cashier ?? ''), amountCents);
+    audit(db, String(cashier ?? ''), 'lottery_payout', String(amountCents));
+    res.json({ ok: true });
+  }));
+
+  const CLIENT_AUDIT = new Set(['void_ticket', 'id_check_refused', 'id_check_passed', 'sale_cancelled']);
+  app.post('/api/audit', wrap((req, res) => {
+    const { cashier, action, detail } = req.body ?? {};
+    if (!CLIENT_AUDIT.has(action)) throw new HttpError(400, 'Unknown action.');
+    audit(db, String(cashier ?? ''), action, String(detail ?? '').slice(0, 200));
+    res.json({ ok: true });
+  }));
+
+  // ---------- items and inventory ----------
+  const itemRow = (r: Record<string, any>) => ({
+    id: r.id, name: r.name, size: r.size, priceCents: r.price_cents, costCents: r.cost_cents, category: r.category,
+    authorityId: r.authority_id, ageMin: r.age_min, qtyOnHand: r.qty_on_hand, active: !!r.active, frequent: !!r.frequent,
+    color: r.color, imageVersion: r.image_version, barcodes: r.codes ? String(r.codes).split(' ') : [],
+  });
+  const ITEM_SQL = `SELECT i.*, (SELECT GROUP_CONCAT(code, ' ') FROM barcodes b WHERE b.item_id = i.id) AS codes FROM items i`;
+
+  app.get('/api/items', wrap((_req, res) => {
+    res.json((db.prepare(`${ITEM_SQL} ORDER BY i.name, i.size`).all() as Record<string, any>[]).map(itemRow));
+  }));
+
+  const categories = () => (db.prepare(`SELECT DISTINCT category FROM items ORDER BY category`).all() as { category: string }[]).map((c) => c.category);
+  app.get('/api/categories', wrap((_req, res) => res.json(categories())));
+
+  type ItemBody = { pin?: string; cashier?: string; name?: string; size?: string | null; priceCents?: number; costCents?: number | null;
+    category?: string; authorityId?: number | null; ageMin?: number | null; qtyOnHand?: number; frequent?: boolean; active?: boolean; reason?: string };
+
+  function validateItem(b: ItemBody, partial: boolean) {
+    const out: Record<string, unknown> = {};
+    if (b.name !== undefined || !partial) {
+      const name = String(b.name ?? '').trim();
+      if (!name) throw new HttpError(400, 'Give the item a name.');
+      out.name = name.slice(0, 80);
+    }
+    if (b.size !== undefined) out.size = b.size ? String(b.size).trim().slice(0, 40) : null;
+    if (b.priceCents !== undefined || !partial) {
+      const p = b.priceCents ?? 0;
+      if (!Number.isInteger(p) || p < 0 || p > 10_000_000) throw new HttpError(400, 'That price is not valid.');
+      out.price_cents = p;
+    }
+    if (b.costCents !== undefined) {
+      if (b.costCents !== null && (!Number.isInteger(b.costCents) || b.costCents < 0)) throw new HttpError(400, 'That cost is not valid.');
+      out.cost_cents = b.costCents;
+    }
+    if (b.category !== undefined || !partial) {
+      const c = String(b.category ?? '').trim();
+      if (!c) throw new HttpError(400, 'Pick a category.');
+      out.category = c.slice(0, 40);
+    }
+    if (b.authorityId !== undefined) {
+      if (b.authorityId !== null && !db.prepare(`SELECT 1 FROM authorities WHERE id = ?`).get(b.authorityId)) throw new HttpError(400, 'That tax does not exist.');
+      out.authority_id = b.authorityId;
+    }
+    if (b.ageMin !== undefined) {
+      if (b.ageMin !== null && (!Number.isInteger(b.ageMin) || b.ageMin < 1 || b.ageMin > 99)) throw new HttpError(400, 'That minimum age is not valid.');
+      out.age_min = b.ageMin;
+    }
+    if (b.qtyOnHand !== undefined) {
+      if (!Number.isInteger(b.qtyOnHand) || b.qtyOnHand < -100_000 || b.qtyOnHand > 1_000_000) throw new HttpError(400, 'That stock count is not valid.');
+      out.qty_on_hand = b.qtyOnHand;
+    }
+    if (b.frequent !== undefined) out.frequent = b.frequent ? 1 : 0;
+    if (b.active !== undefined) out.active = b.active ? 1 : 0;
+    return out;
+  }
+
+  app.post('/api/items', wrap((req, res) => {
+    const b = req.body as ItemBody;
+    if (!isManagerPin(db, b.pin)) throw new HttpError(403, 'A manager PIN is needed to add items.');
+    const v = validateItem(b, false);
+    const cols = Object.keys(v);
+    const r = db.prepare(`INSERT INTO items (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => v[c]));
+    audit(db, String(b.cashier ?? ''), 'item_add', String(v.name));
+    res.json(itemRow(db.prepare(`${ITEM_SQL} WHERE i.id = ?`).get(r.lastInsertRowid) as Record<string, any>));
+  }));
+
+  app.post('/api/items/:id', wrap((req, res) => {
+    const b = req.body as ItemBody;
+    if (!isManagerPin(db, b.pin)) throw new HttpError(403, 'A manager PIN is needed to change items.');
+    const id = Number(req.params.id);
+    const cur = db.prepare(`SELECT * FROM items WHERE id = ?`).get(id) as Record<string, any> | undefined;
+    if (!cur) throw new HttpError(404, 'That item no longer exists.');
+    const v = validateItem(b, true);
+    const cols = Object.keys(v);
+    if (cols.length) {
+      db.prepare(`UPDATE items SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...cols.map((c) => v[c]), id);
+      const changes = cols.filter((c) => String(cur[c]) !== String(v[c])).map((c) => `${c} ${cur[c]} -> ${v[c]}`);
+      if (changes.length) audit(db, String(b.cashier ?? ''), 'item_edit', `${cur.name}: ${changes.join(', ')}${b.reason ? ` (${String(b.reason).slice(0, 80)})` : ''}`);
+    }
+    res.json(itemRow(db.prepare(`${ITEM_SQL} WHERE i.id = ?`).get(id) as Record<string, any>));
+  }));
+
+  app.post('/api/items/:id/barcodes', wrap((req, res) => {
+    const { pin, cashier, code } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    if (typeof code !== 'string' || !/^[0-9A-Za-z\-]{4,64}$/.test(code)) throw new HttpError(400, 'That barcode looks wrong.');
+    if (!db.prepare(`SELECT 1 FROM items WHERE id = ?`).get(id)) throw new HttpError(404, 'That item no longer exists.');
+    const owner = db.prepare(`SELECT i.name FROM barcodes b JOIN items i ON i.id = b.item_id WHERE b.code = ?`).get(code) as { name: string } | undefined;
+    if (owner) throw new HttpError(409, `That barcode already belongs to ${owner.name}.`);
+    db.prepare(`INSERT INTO barcodes (code, item_id) VALUES (?, ?)`).run(code, id);
+    audit(db, String(cashier ?? ''), 'barcode_linked', `item ${id} ${code}`);
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/items/:id/barcodes/:code', wrap((req, res) => {
+    if (!isManagerPin(db, String(req.query.pin ?? ''))) throw new HttpError(403, 'A manager PIN is needed.');
+    db.prepare(`DELETE FROM barcodes WHERE code = ? AND item_id = ?`).run(req.params.code, Number(req.params.id));
+    audit(db, String(req.query.cashier ?? ''), 'barcode_unlinked', `item ${req.params.id} ${req.params.code}`);
+    res.json({ ok: true });
+  }));
+
+  // Image upload: the screen already shrinks the picture to about 480px, sent as a JPEG data URL.
+  app.post('/api/items/:id/image', wrap((req, res) => {
+    const { pin, cashier, dataUrl } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    const cur = db.prepare(`SELECT image_version FROM items WHERE id = ?`).get(id) as { image_version: number } | undefined;
+    if (!cur) throw new HttpError(404, 'That item no longer exists.');
+    const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl ?? ''));
+    if (!m) throw new HttpError(400, 'That picture could not be read.');
+    const buf = Buffer.from(m[1]!, 'base64');
+    if (buf.length > 1_500_000) throw new HttpError(400, 'That picture is too big.');
+    fs.writeFileSync(path.join(imagesDir, `${id}.jpg`), buf);
+    const version = cur.image_version + 1;
+    db.prepare(`UPDATE items SET image_version = ? WHERE id = ?`).run(version, id);
+    audit(db, String(cashier ?? ''), 'item_image', `item ${id}`);
+    res.json({ ok: true, imageVersion: version });
+  }));
+
+  app.delete('/api/items/:id/image', wrap((req, res) => {
+    if (!isManagerPin(db, String(req.query.pin ?? ''))) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    fs.rmSync(path.join(imagesDir, `${id}.jpg`), { force: true });
+    db.prepare(`UPDATE items SET image_version = 0 WHERE id = ?`).run(id);
+    res.json({ ok: true });
+  }));
+
+  // ---------- updates ----------
+  app.get('/api/update/status', wrap((_req, res) => {
+    res.json(extras.updater ? extras.updater.status() : { current: extras.version ?? '0', latest: null, state: 'idle', message: 'Auto-update is off.', checkedAt: null, source: '' });
+  }));
+  app.post('/api/update/check', wrap(async (req, res) => {
+    if (!isManagerPin(db, req.body?.pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    if (!extras.updater) throw new HttpError(400, 'Auto-update is off.');
+    res.json(await extras.updater.check(true));
+  }));
+
+  // ---------- quick daily summary ----------
+  app.get('/api/reports/today', wrap((_req, res) => {
+    const workday = workdayFor(new Date(), getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00'));
+    const one = <T,>(sql: string) => db.prepare(sql).get(workday) as T;
+    const all = <T,>(sql: string) => db.prepare(sql).all(workday) as T[];
+    res.json({
+      workday,
+      sales: one<{ n: number; total: number; tax: number }>(
+        `SELECT COUNT(*) n, COALESCE(SUM(total_cents),0) total, COALESCE(SUM(tax_cents),0) tax FROM sales WHERE workday = ?`),
+      byCategory: all<{ category: string; cents: number }>(
+        `SELECT category, SUM(gross_cents - discount_cents) cents FROM sale_lines WHERE sale_id IN (SELECT id FROM sales WHERE workday = ?) GROUP BY category ORDER BY cents DESC`),
+      byAuthority: all<{ title: string; cents: number }>(
+        `SELECT title, SUM(cents) cents FROM sale_tax WHERE sale_id IN (SELECT id FROM sales WHERE workday = ?) GROUP BY title ORDER BY title`),
+      noSales: one<{ n: number }>(
+        `SELECT COUNT(*) n FROM cash_events WHERE type = 'no_sale' AND ts >= (SELECT COALESCE(MIN(created_at), '9') FROM sales WHERE workday = ?)`).n,
+      lotterySales: one<{ cents: number }>(
+        `SELECT COALESCE(SUM(gross_cents),0) cents FROM sale_lines WHERE kind = 'lottery' AND sale_id IN (SELECT id FROM sales WHERE workday = ?)`).cents,
+    });
+  }));
+
+  if (staticDir && fs.existsSync(staticDir)) {
+    app.use(express.static(staticDir));
+    app.get(/^\/(?!api).*/, (_req, res) => res.sendFile(path.join(staticDir, 'index.html')));
+  }
+
+  // Friendly errors only. Never send a stack trace to the register screen.
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  });
+  return app;
+}
+
+function buildLine(db: DB, l: SaleLineInput, i: number): TicketLine {
+  if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > 10_000) throw new HttpError(400, 'A quantity on the ticket is not valid.');
+  const key = `L${i}`;
+  if (l.kind === 'item') {
+    const r = db.prepare(`SELECT * FROM items WHERE id = ? AND active = 1`).get(l.itemId) as Record<string, any> | undefined;
+    if (!r) throw new HttpError(400, 'An item on the ticket no longer exists.');
+    const name = r.size ? `${r.name} ${r.size}` : r.name;
+    return { key, kind: 'item', name, qty: l.qty, unitCents: r.price_cents, authorityId: r.authority_id, category: r.category,
+      ageMin: r.age_min, feeMultiplier: r.fee_multiplier, itemId: r.id };
+  }
+  if (l.kind === 'button' || l.kind === 'ask') {
+    const b = db.prepare(`SELECT * FROM buttons WHERE id = ?`).get(l.buttonId) as Record<string, any> | undefined;
+    if (!b) throw new HttpError(400, 'A button on the ticket no longer exists.');
+    let unit = b.price_cents;
+    if (b.price_mode === 'ask') {
+      if (!Number.isInteger(l.unitCents) || (l.unitCents as number) <= 0 || (l.unitCents as number) > 10_000_000) throw new HttpError(400, 'Enter a price for that item.');
+      unit = l.unitCents;
+    }
+    return { key, kind: b.price_mode === 'ask' ? 'ask' : 'button', name: b.name, qty: l.qty, unitCents: unit,
+      authorityId: b.authority_id, category: b.category, ageMin: b.age_min, buttonId: b.id };
+  }
+  if (l.kind === 'lottery') {
+    if (!Number.isInteger(l.unitCents) || (l.unitCents as number) <= 0 || (l.unitCents as number) > 100_000) throw new HttpError(400, 'Enter the lottery amount.');
+    return { key, kind: 'lottery', name: lotteryLabel(l.qty, l.unitCents as number), qty: l.qty, unitCents: l.unitCents as number,
+      authorityId: null, category: 'Lottery', ageMin: null };
+  }
+  throw new HttpError(400, 'Unknown line type.');
+}
+
+function checkAge(db: DB, check: AgeCheckInput | undefined, cashier: string, minAge: number): void {
+  if (!check) throw new HttpError(403, `ID is required: this ticket has items for ${minAge}+.`);
+  if (check.result !== 'passed') throw new HttpError(403, 'The ID check did not pass. Remove the age-restricted items to continue.');
+  const needsPin = check.method === 'manager_override' ||
+    (check.method === 'manual_dob' && getSetting(db, 'scan_id_only', 'true') === 'true');
+  if (needsPin && !isManagerPin(db, check.managerPin)) throw new HttpError(403, 'A manager PIN is needed for that kind of ID check.');
+  // Only the result is logged. No name, address, license number, or barcode text is ever stored.
+  audit(db, cashier, 'id_check', `${check.method} ${check.result} ${minAge}+`);
+}
