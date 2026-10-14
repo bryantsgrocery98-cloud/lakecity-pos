@@ -93,10 +93,10 @@ describe('sales', () => {
     for (const r of rows) expect(r.detail).toMatch(/^(scan|manual_dob|manager_override) (passed|failed) \d+\+$/);
   });
 
-  it('rejects short cash and missing card reference', async () => {
+  it('rejects short cash, accepts a card sale with no reference', async () => {
     const lines = [{ kind: 'item', itemId: item('Cola').id, qty: 1 }];
     expect((await post('/api/sales', { cashier: 'Dee', discountPct: 0, lines, payment: { tender: 'cash', tenderedCents: 100 } })).status).toBe(400);
-    expect((await post('/api/sales', { cashier: 'Dee', discountPct: 0, lines, payment: { tender: 'card' } })).status).toBe(400);
+    expect((await post('/api/sales', { cashier: 'Dee', discountPct: 0, lines, payment: { tender: 'card' } })).status).toBe(200);
     expect((await post('/api/sales', { cashier: 'Dee', discountPct: 0, lines: [], payment: { tender: 'cash', tenderedCents: 100 } })).status).toBe(400);
   });
 
@@ -120,10 +120,11 @@ describe('sales', () => {
     expect(r.totals.taxCents).toBe(36); // 8% Grocery All
   });
 
-  it('lowers stock when an item is sold', () => {
-    // Cola starts with 12 on hand in the demo data and was sold once above.
-    const row = db.prepare(`SELECT qty_on_hand FROM items WHERE id = ?`).get(item('Cola').id) as { qty_on_hand: number };
-    expect(row.qty_on_hand).toBe(11);
+  it('lowers stock when an item is sold', async () => {
+    const q = () => (db.prepare(`SELECT qty_on_hand FROM items WHERE id = ?`).get(item('Cola').id) as { qty_on_hand: number }).qty_on_hand;
+    const before = q();
+    await post('/api/sales', { cashier: 'Dee', discountPct: 0, lines: [{ kind: 'item', itemId: item('Cola').id, qty: 3 }], payment: { tender: 'cash', tenderedCents: 2000 } });
+    expect(q()).toBe(before - 3);
   });
 });
 

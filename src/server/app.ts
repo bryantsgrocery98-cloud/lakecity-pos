@@ -144,8 +144,8 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
       if (tendered < totals.totalCents) throw new HttpError(400, 'The cash given is less than the total.');
       change = tendered - totals.totalCents;
     } else {
-      reference = String(pay.reference ?? '').trim().slice(0, 16);
-      if (!reference) throw new HttpError(400, 'Enter the approval code or last 4 digits from the card machine.');
+      // The card machine runs the charge on its own; the register only records that the sale was paid by card.
+      reference = String(pay.reference ?? '').trim().slice(0, 16) || null;
     }
 
     const now = new Date();

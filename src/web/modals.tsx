@@ -51,19 +51,15 @@ export function CashModal({ total, onClose, onComplete, error, busy }: {
 }
 
 export function CardModal({ total, onClose, onComplete, error, busy }: {
-  total: number; onClose: () => void; onComplete: (ref: string) => void; error: string; busy: boolean;
+  total: number; onClose: () => void; onComplete: () => void; error: string; busy: boolean;
 }) {
-  const { digits, press } = useDigits(12);
   return (
     <Modal title="Card" onClose={onClose}>
-      <div className="hint">
-        Run <b>{formatCents(total)}</b> on the card machine. When it approves, type the last 4 digits of the card or the approval code.
-      </div>
-      <div className="display plain num">{digits || '—'}</div>
-      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} />
+      <div className="display num" style={{ justifyContent: 'center', fontSize: 52, height: 96 }}>{formatCents(total)}</div>
+      <div className="hint" style={{ fontSize: 18, textAlign: 'center' }}>Run this amount on the card machine.</div>
       {error && <div className="err">{error}</div>}
-      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={digits.length < 3 || busy}
-        onClick={() => onComplete(digits)}>Card approved, complete sale</button>
+      <button className="btn btn-primary btn-block" style={{ minHeight: 72, fontSize: 24 }} disabled={busy} onClick={onComplete}>Card approved, complete sale</button>
+      <button className="btn btn-block" onClick={onClose}>Card declined / go back</button>
     </Modal>
   );
 }

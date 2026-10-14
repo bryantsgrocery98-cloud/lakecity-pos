@@ -508,7 +508,7 @@ export function App() {
       </div>
 
       {modal?.t === 'cash' && <CashModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={(t) => completeSale({ tender: 'cash', tenderedCents: t })} />}
-      {modal?.t === 'card' && <CardModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={(r) => completeSale({ tender: 'card', reference: r })} />}
+      {modal?.t === 'card' && <CardModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={() => completeSale({ tender: 'card', reference: '' })} />}
       {modal?.t === 'ask' && <AskModal title={modal.button.name} onClose={() => setModal(null)} onAdd={(cents) => {
         const b = modal.button;
         pushLine({ kind: 'ask', name: b.name, qty: 1, unitCents: cents, authorityId: b.authorityId, category: b.category, ageMin: b.ageMin, buttonId: b.id });
