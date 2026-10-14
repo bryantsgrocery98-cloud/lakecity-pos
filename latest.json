@@ -1,7 +1,7 @@
 {
-  "version": "0.6.3",
-  "file": "lakecity-pos-0.6.3.zip",
-  "sha256": "668faa3038ff31205e43153c7ea92dd366ef4d7f6eb835009029406915d5c688",
-  "notes": "Version number shown in the top bar and on the login screen.",
-  "builtAt": "2026-10-14T03:58:03.651Z"
+  "version": "0.6.4",
+  "file": "lakecity-pos-0.6.4.zip",
+  "sha256": "38a26bd6adf9e385c62dc1518dbc0c4f750ab8ce8b706906059b80da0f7d63f5",
+  "notes": "USB cash drawer support: pick the drawer's COM port under Manage → Printer → Cash Drawer.",
+  "builtAt": "2026-10-14T04:22:35.382Z"
 }
