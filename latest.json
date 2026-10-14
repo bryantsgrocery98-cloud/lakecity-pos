@@ -1,7 +1,7 @@
 {
-  "version": "0.4.1",
-  "file": "lakecity-pos-0.4.1.zip",
-  "sha256": "d14a3d86fa0f04c0406022a42286af07ff1cc7c261813056f1ff3f4a83928cee",
-  "notes": "Import links real barcodes and downloads product photos; scanner tolerates leading zeros",
-  "builtAt": "2026-10-14T02:16:38.470Z"
+  "version": "0.5.0",
+  "file": "lakecity-pos-0.5.0.zip",
+  "sha256": "faf83d4d69fa3a7fcece68322c7ea7ed187c3d487794313358ad5126c9c9d6bd",
+  "notes": "Thermal printing (receipts, drawer, test page), X/Z day report, voids and refunds",
+  "builtAt": "2026-10-14T02:34:04.648Z"
 }
