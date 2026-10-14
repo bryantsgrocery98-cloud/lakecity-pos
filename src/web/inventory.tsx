@@ -162,7 +162,7 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
 }
 
 type Preview = {
-  counts: { rows: number; items: number; buttons: number; zeroPrice: number; negativeStock: number; noCost: number; byDepartment: Record<string, number> };
+  counts: { rows: number; items: number; buttons: number; zeroPrice: number; negativeStock: number; noCost: number; barcodes: number; images: number; byDepartment: Record<string, number> };
   warnings: { name: string; note: string }[]; skipped: { name: string; reason: string }[]; pages: string[]; demoCount: number; existing: number;
   sample: { name: string; size: string | null; priceCents: number; category: string; authority: string | null; qty: number }[];
 };
@@ -173,7 +173,13 @@ function ImportModal({ pin, cashier, onClose, onDone }: { pin: string; cashier: 
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<{ added: number; updated: number; buttons: number; removedDemo: number } | null>(null);
+  const [result, setResult] = useState<{ added: number; updated: number; buttons: number; removedDemo: number; barcodes: number; imagesQueued: number } | null>(null);
+  const [imgJob, setImgJob] = useState<{ total: number; done: number; ok: number; running: boolean } | null>(null);
+  useEffect(() => {
+    if (!result || !result.imagesQueued) return;
+    const t = window.setInterval(() => api<typeof imgJob>('/api/import/images/status').then((j) => { setImgJob(j); if (j && !j.running) window.clearInterval(t); }).catch(() => {}), 1500);
+    return () => window.clearInterval(t);
+  }, [result]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const pick = async (f: File) => {
@@ -196,9 +202,10 @@ function ImportModal({ pin, cashier, onClose, onDone }: { pin: string; cashier: 
       {result ? (
         <>
           <div className="inv-msg" style={{ margin: 0, background: '#e6f4ea', color: '#0b4a33', fontSize: 18 }}>
-            Done. {result.added} products added, {result.updated} updated, {result.buttons} one-click buttons set up{result.removedDemo ? `, ${result.removedDemo} demo products removed` : ''}.
+            Done. {result.added} products added, {result.updated} updated, {result.buttons} one-click buttons set up, {result.barcodes} barcodes linked{result.removedDemo ? `, ${result.removedDemo} demo products removed` : ''}.
           </div>
-          <div className="hint">Products have no barcodes yet. The first time each one is scanned at the register, pick it from the list and it is linked from then on.</div>
+          {result.imagesQueued > 0 && <div className="hint">Pictures: {imgJob ? `${imgJob.done} of ${imgJob.total} downloaded${imgJob.running ? '…' : ` (${imgJob.ok} added)`}` : `downloading ${result.imagesQueued} in the background…`}</div>}
+          {result.barcodes === 0 && <div className="hint">Products have no barcodes yet. The first time each one is scanned at the register, pick it from the list and it is linked from then on.</div>}
           <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} onClick={onDone}>Back to inventory</button>
         </>
       ) : (
@@ -213,8 +220,10 @@ function ImportModal({ pin, cashier, onClose, onDone }: { pin: string; cashier: 
           {error && <div className="err" role="alert">{error}</div>}
           {preview && (
             <>
-              <div className="quick" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+              <div className="quick" style={{ gridTemplateColumns: 'repeat(6, minmax(0, 1fr))' }}>
                 <Stat label="Products" value={preview.counts.items} />
+                <Stat label="With barcode" value={preview.counts.barcodes} warn={preview.counts.barcodes === 0} />
+                <Stat label="With photo" value={preview.counts.images} />
                 <Stat label="One-click buttons" value={preview.counts.buttons} />
                 <Stat label="Priced at $0" value={preview.counts.zeroPrice} warn={preview.counts.zeroPrice > 0} />
                 <Stat label="Negative stock" value={preview.counts.negativeStock} warn={preview.counts.negativeStock > 0} />

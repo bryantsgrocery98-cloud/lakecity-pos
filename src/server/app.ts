@@ -6,7 +6,7 @@ import type { Authority } from '../core/tax.js';
 import { computeTotals, lotteryLabel, type TicketLine } from '../core/ticket.js';
 import { workdayFor } from '../core/workday.js';
 import type { createUpdater } from './updater.js';
-import { applyImport, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
+import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
 import type {
   AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
 } from '../core/types.js';
@@ -95,7 +95,17 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   }));
 
   app.get('/api/scan/:code', wrap((req, res) => {
-    const row = db.prepare(`SELECT item_id FROM barcodes WHERE code = ?`).get(req.params.code) as { item_id: number } | undefined;
+    // Scanners differ on leading zeros (UPC-A as 12 or 13 digits, EAN-8/UPC-E as 8), so try the common forms.
+    const raw = String(req.params.code).trim();
+    const forms = [raw];
+    if (/^\d+$/.test(raw)) {
+      if (raw.length === 13 && raw.startsWith('0')) forms.push(raw.slice(1));
+      if (raw.length === 12) forms.push('0' + raw);
+      if (raw.length === 11) forms.push('0' + raw);
+      forms.push(raw.replace(/^0+/, ''));
+    }
+    let row: { item_id: number } | undefined;
+    for (const f of forms) { row = db.prepare(`SELECT item_id FROM barcodes WHERE code = ?`).get(f) as typeof row; if (row) break; }
     if (!row) throw new HttpError(404, 'Barcode not found.');
     res.json({ itemId: row.item_id });
   }));
@@ -380,8 +390,19 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed to import.');
     const rows = parseCsv(String(csv ?? ''));
     if (!rows.length || !looksLikePricebook(Object.keys(rows[0]!))) throw new HttpError(400, 'That file does not look like the price book export.');
-    res.json(applyImport(db, planImport(rows), String(cashier ?? ''), !!replaceDemo));
+    const result = applyImport(db, planImport(rows), String(cashier ?? ''), !!replaceDemo);
+    const { pendingImages, ...summary } = result;
+    // Pictures download in the background; the inventory page shows them as they land.
+    imageJob = { total: pendingImages.length, done: 0, ok: 0, running: pendingImages.length > 0 };
+    if (pendingImages.length) {
+      fetchImportImages(db, imagesDir, pendingImages, (d) => { imageJob.done = d; })
+        .then((ok) => { imageJob.ok = ok; imageJob.running = false; })
+        .catch(() => { imageJob.running = false; });
+    }
+    res.json(summary);
   }));
+  let imageJob = { total: 0, done: 0, ok: 0, running: false };
+  app.get('/api/import/images/status', wrap((_req, res) => res.json(imageJob)));
 
   // ---------- updates ----------
   app.get('/api/update/status', wrap((_req, res) => {

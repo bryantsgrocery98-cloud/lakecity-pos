@@ -15,6 +15,8 @@ export type PlannedItem = {
   externalId: string; name: string; size: string | null; priceCents: number; costCents: number | null;
   category: string; authorityTitle: string | null; ageMin: number | null; qtyOnHand: number; priceMode: 'fixed' | 'ask';
   feeMultiplier: number; ebt: boolean; warnings: string[];
+  /** Optional extra columns (added from the merchant portal): a real barcode, a short PLU, and a product photo URL. */
+  barcode: string | null; plu: string | null; imageUrl: string | null;
 };
 export type PlannedButton = {
   page: string; pos: number; name: string; priceCents: number; priceMode: 'fixed' | 'ask'; authorityTitle: string | null;
@@ -23,7 +25,7 @@ export type PlannedButton = {
 export type Plan = {
   items: PlannedItem[]; buttons: PlannedButton[]; pages: string[];
   skipped: { name: string; reason: string }[];
-  counts: { rows: number; items: number; buttons: number; zeroPrice: number; negativeStock: number; noCost: number; byDepartment: Record<string, number> };
+  counts: { rows: number; items: number; buttons: number; zeroPrice: number; negativeStock: number; noCost: number; barcodes: number; images: number; byDepartment: Record<string, number> };
   warnings: { name: string; note: string }[];
 };
 
@@ -134,8 +136,14 @@ export function planImport(rows: PbRow[]): Plan {
     if (priceCents === 0 && !isService) { zeroPrice++; w.push('Priced at $0. Set the price before selling.'); }
     const ebt = unwrap(r.ebt).toLowerCase() === 'y';
 
+    const bcRaw = unwrap(r.upc_real);
+    const barcode = /^[0-9]{6,14}$/.test(bcRaw) && !/^0+$/.test(bcRaw) && !bcRaw.startsWith('499693') ? bcRaw : null;
+    const pluRaw = unwrap(r.plu);
+    const plu = /^[0-9]{1,5}$/.test(pluRaw) ? pluRaw : null;
+    const imgRaw = unwrap(r.image_url);
+    const imageUrl = /^https:\/\//.test(imgRaw) ? imgRaw : null;
     items.push({ externalId, name, size, priceCents, costCents, category: map.category, authorityTitle: map.authority, ageMin: map.ageMin,
-      qtyOnHand: stock, priceMode, feeMultiplier: Number.isFinite(fee) && fee > 0 ? fee : 1, ebt, warnings: w });
+      qtyOnHand: stock, priceMode, feeMultiplier: Number.isFinite(fee) && fee > 0 ? fee : 1, ebt, warnings: w, barcode, plu, imageUrl });
     for (const note of w) warnings.push({ name: size ? `${name} ${size}` : name, note });
 
     if (unwrap(r.is_oneclick).toLowerCase() === 'y') {
@@ -157,10 +165,11 @@ export function planImport(rows: PbRow[]): Plan {
   for (const b of buttons) if (!pages.includes(b.page)) pages.push(b.page);
 
   return { items, buttons, pages, skipped, warnings,
-    counts: { rows: rows.length, items: items.length, buttons: buttons.length, zeroPrice, negativeStock, noCost, byDepartment } };
+    counts: { rows: rows.length, items: items.length, buttons: buttons.length, zeroPrice, negativeStock, noCost,
+      barcodes: items.filter((i) => i.barcode).length, images: items.filter((i) => i.imageUrl).length, byDepartment } };
 }
 
-export type ApplyResult = { added: number; updated: number; buttons: number; removedDemo: number };
+export type ApplyResult = { added: number; updated: number; buttons: number; removedDemo: number; barcodes: number; imagesQueued: number };
 
 /**
  * Writes the plan into the database. Existing items are matched by external_id and updated (price, cost,
@@ -168,13 +177,13 @@ export type ApplyResult = { added: number; updated: number; buttons: number; rem
  * when replaceDemo is true. One-click pages are rebuilt from the file; Gas and Checks & Services keep
  * their service buttons.
  */
-export function applyImport(db: DB, plan: Plan, cashier: string, replaceDemo: boolean): ApplyResult {
+export function applyImport(db: DB, plan: Plan, cashier: string, replaceDemo: boolean): ApplyResult & { pendingImages: { itemId: number; url: string }[] } {
   const authId = (title: string | null): number | null => {
     if (title === null) return null;
     const r = db.prepare(`SELECT id FROM authorities WHERE title = ?`).get(title) as { id: number } | undefined;
     return r ? r.id : null;
   };
-  const res: ApplyResult = { added: 0, updated: 0, buttons: 0, removedDemo: 0 };
+  const res: ApplyResult & { pendingImages: { itemId: number; url: string }[] } = { added: 0, updated: 0, buttons: 0, removedDemo: 0, barcodes: 0, imagesQueued: 0, pendingImages: [] };
   const tx = db.transaction(() => {
     if (replaceDemo) {
       db.exec(`DELETE FROM holds`);
@@ -198,6 +207,17 @@ export function applyImport(db: DB, plan: Plan, cashier: string, replaceDemo: bo
       } else {
         const r = ins.run(it.name, it.size, it.externalId, it.priceCents, it.priceMode, it.costCents, it.category, authId(it.authorityTitle), it.ageMin, it.feeMultiplier, it.qtyOnHand, colors[i % colors.length]);
         idByExternal.set(it.externalId, Number(r.lastInsertRowid)); res.added++;
+      }
+      const itemId = idByExternal.get(it.externalId)!;
+      for (const code of [it.barcode, it.plu]) {
+        if (!code) continue;
+        if (db.prepare(`SELECT 1 FROM barcodes WHERE code = ?`).get(code)) continue;
+        db.prepare(`INSERT INTO barcodes (code, item_id) VALUES (?, ?)`).run(code, itemId);
+        if (code === it.barcode) res.barcodes++;
+      }
+      if (it.imageUrl) {
+        const cur = db.prepare(`SELECT image_version FROM items WHERE id = ?`).get(itemId) as { image_version: number };
+        if (cur.image_version === 0) { res.pendingImages.push({ itemId, url: it.imageUrl }); res.imagesQueued++; }
       }
     });
 
@@ -232,8 +252,33 @@ export function applyImport(db: DB, plan: Plan, cashier: string, replaceDemo: bo
       ensure('Check Cashing Fee', 'box', '#DCEBFF');
     }
     db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('pricebook_imported_at', ?)`).run(new Date().toISOString());
-    audit(db, cashier, 'pricebook_import', `${res.added} added, ${res.updated} updated, ${res.buttons} buttons, ${res.removedDemo} demo items removed`);
+    audit(db, cashier, 'pricebook_import', `${res.added} added, ${res.updated} updated, ${res.buttons} buttons, ${res.barcodes} barcodes, ${res.imagesQueued} pictures, ${res.removedDemo} demo items removed`);
   });
   tx();
   return res;
+}
+
+/** Downloads product photos listed in the import, a few at a time. Each success bumps the item's image_version. */
+export async function fetchImportImages(db: DB, imagesDir: string, pending: { itemId: number; url: string }[], onProgress?: (done: number) => void): Promise<number> {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  fs.mkdirSync(imagesDir, { recursive: true });
+  let done = 0, ok = 0, i = 0;
+  const worker = async () => {
+    while (i < pending.length) {
+      const job = pending[i++]!;
+      try {
+        const res = await fetch(job.url, { signal: AbortSignal.timeout(15000) });
+        if (!res.ok) throw new Error(String(res.status));
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length < 200 || buf.length > 3_000_000) throw new Error('bad size');
+        fs.writeFileSync(path.join(imagesDir, `${job.itemId}.jpg`), buf);
+        db.prepare(`UPDATE items SET image_version = CASE WHEN image_version = 0 THEN 1 ELSE image_version END WHERE id = ?`).run(job.itemId);
+        ok++;
+      } catch { /* skip this picture; the owner can add one later */ }
+      done++; onProgress?.(done);
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
+  return ok;
 }
