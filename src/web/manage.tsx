@@ -16,7 +16,7 @@ type DayReport = {
   tenders: { tender: string; cents: number; count: number }[]; lottery: { sales: number; payouts: number }; noSales: number;
   items: { name: string; qty: number; cents: number }[];
 };
-type PrinterCfg = { target: string; printReceipts: boolean; drawerKick: boolean; available: string[]; storeName: string; header: string; footer: string; showCashier: boolean };
+type PrinterCfg = { target: string; printReceipts: boolean; drawerKick: boolean; available: string[]; drawerPort: string; serialPorts: { port: string; name: string }[]; storeName: string; header: string; footer: string; showCashier: boolean };
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
@@ -271,8 +271,10 @@ function PrinterTab({ pin }: { pin: string }) {
     try { await api('/api/printer/test', { target }); setMsg('Test page sent. Check the printer.'); play('done'); } catch (e) { setMsg((e as Error).message); play('bad'); } finally { setBusy(false); }
   };
   const drawer = async () => {
-    try { await api('/api/printer/drawer', { pin }); setMsg('Drawer pulse sent.'); } catch (e) { setMsg((e as Error).message); }
+    setMsg('');
+    try { await api('/api/printer/drawer', { pin }); setMsg('Open signal sent to the register.'); play('done'); } catch (e) { setMsg((e as Error).message); play('bad'); }
   };
+  const canOpen = !!cfg.target || !!cfg.drawerPort;
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 12 }}>
       {msg && <div className="inv-msg" style={{ margin: 0 }}>{msg}</div>}
@@ -288,9 +290,15 @@ function PrinterTab({ pin }: { pin: string }) {
       <div className="quick" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
         <button className="btn btn-primary" disabled={busy || !target} onClick={test}>Print test page</button>
         <button className="btn" disabled={target === cfg.target} onClick={() => save({ target })}>Save printer</button>
-        <button className="btn" disabled={!cfg.target} onClick={drawer}>Open register now</button>
+        <button className="btn" disabled={!canOpen} onClick={drawer}>Open register now</button>
       </div>
-      <div className="hint">For a network printer type <b>tcp://</b> and its address, like tcp://192.168.1.50. The cash drawer must plug into the printer's drawer port.</div>
+      <div className="hint">For a network printer type <b>tcp://</b> and its address, like tcp://192.168.1.50.</div>
+      <div className="editor-label">CASH DRAWER</div>
+      <div className="chips">
+        <button className={`chip ${!cfg.drawerPort ? 'on' : ''}`} onClick={() => save({ drawerPort: '' })}>Plugged into the printer</button>
+        {cfg.serialPorts.map((sp) => <button key={sp.port} className={`chip ${cfg.drawerPort === sp.port ? 'on' : ''}`} onClick={() => save({ drawerPort: sp.port })}>USB: {sp.name}</button>)}
+      </div>
+      <div className="hint">A drawer with a phone-style cable plugs into the printer. A drawer with a USB cable shows up here as a COM port; pick it, then press <b>Open register now</b> to test.{cfg.serialPorts.length === 0 && ' (No USB drawer found right now; check its cable and come back to this tab.)'}</div>
       <div className="editor-label">AFTER EACH SALE</div>
       <div className="chips">
         <button className={`chip ${cfg.printReceipts ? 'on' : ''}`} onClick={() => save({ printReceipts: !cfg.printReceipts })}>Print a receipt automatically: {cfg.printReceipts ? 'ON' : 'OFF'}</button>

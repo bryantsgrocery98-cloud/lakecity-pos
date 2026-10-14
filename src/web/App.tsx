@@ -293,7 +293,7 @@ export function App() {
     try {
       const r = await api<{ drawer: string; message?: string }>('/api/no-sale', { cashier: user.name, pin });
       if (r.drawer === 'opened') showToast('Register opened (No Sale).');
-      else if (r.drawer === 'no-printer') showToast('No Sale recorded. Pick the receipt printer under Manage → Printer so the register can open.', true);
+      else if (r.drawer === 'no-printer') showToast('No Sale recorded. Set up the cash drawer under Manage → Printer so the register can open.', true);
       else showToast(`No Sale recorded, but the drawer did not open: ${r.message ?? 'printer problem'}`, true);
       setModal(null);
     } catch (e) {

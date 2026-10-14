@@ -8,7 +8,7 @@ import { workdayFor } from '../core/workday.js';
 import type { createUpdater } from './updater.js';
 import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
 import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
-import { listPrinters, sendToPrinter } from './printer.js';
+import { listPrinters, listSerialPorts, pulseSerialDrawer, sendToPrinter } from './printer.js';
 import { buildDayReport } from './reports.js';
 import type {
   AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
@@ -45,6 +45,14 @@ export type AppExtras = { updater?: ReturnType<typeof createUpdater>; version?: 
 
 export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   const app = express();
+  /** Opens the cash drawer: through its own USB/COM port when one is set, otherwise through the receipt printer. */
+  const openDrawer = async (): Promise<void> => {
+    const port = getSetting(db, 'drawer_port', '');
+    if (port) { await pulseSerialDrawer(port, drawerBytes()); return; }
+    const printer = getSetting(db, 'printer_target', '');
+    if (!printer) throw new Error('No cash drawer is set up. Pick the drawer port or receipt printer under Manage → Printer.');
+    await sendToPrinter({ target: printer }, drawerBytes());
+  };
   const receiptText = (): ReceiptText => ({
     headerLines: getSetting(db, 'receipt_header', [getSetting(db, 'store_address', ''), getSetting(db, 'store_phone', '')].filter(Boolean).join('\n')).split('\n'),
     footerLines: getSetting(db, 'receipt_footer', 'Thank you! Please come again.').split('\n'),
@@ -193,8 +201,10 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const printer = getSetting(db, 'printer_target', '');
     const kick = pay.tender === 'cash' && getSetting(db, 'drawer_kick', 'true') === 'true';
     const auto = getSetting(db, 'print_receipts', 'false') === 'true';
-    if (printer && (kick || auto)) {
-      const bytes = auto ? receiptBytes(receipt, { kickDrawer: kick, text: receiptText() }) : drawerBytes();
+    const viaPrinter = !getSetting(db, 'drawer_port', '');
+    if (kick && !viaPrinter) openDrawer().catch((e) => console.log(`[drawer] ${(e as Error).message}`));
+    if (printer && ((kick && viaPrinter) || auto)) {
+      const bytes = auto ? receiptBytes(receipt, { kickDrawer: kick && viaPrinter, text: receiptText() }) : drawerBytes();
       sendToPrinter({ target: printer }, bytes).catch((e) => console.log(`[printer] ${(e as Error).message}`));
     }
   }));
@@ -204,16 +214,18 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const t = receiptText();
     res.json({ target: getSetting(db, 'printer_target', ''), printReceipts: getSetting(db, 'print_receipts', 'false') === 'true',
       drawerKick: getSetting(db, 'drawer_kick', 'true') === 'true', available: await listPrinters(),
+      drawerPort: getSetting(db, 'drawer_port', ''), serialPorts: await listSerialPorts(),
       storeName: getSetting(db, 'store_name', ''), header: t.headerLines.join('\n'), footer: t.footerLines.join('\n'), showCashier: t.showCashier });
   }));
   app.post('/api/printer', wrap((req, res) => {
-    const { pin, cashier, target, printReceipts, drawerKick, storeName, header, footer, showCashier } = req.body ?? {};
+    const { pin, cashier, target, printReceipts, drawerKick, drawerPort, storeName, header, footer, showCashier } = req.body ?? {};
     if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
     const set = db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`);
     const changes: string[] = [];
     if (target !== undefined) { set.run('printer_target', String(target).trim().slice(0, 120)); changes.push('printer'); }
     if (printReceipts !== undefined) { set.run('print_receipts', printReceipts ? 'true' : 'false'); changes.push(`auto receipts ${printReceipts ? 'on' : 'off'}`); }
     if (drawerKick !== undefined) { set.run('drawer_kick', drawerKick ? 'true' : 'false'); changes.push(`drawer kick ${drawerKick ? 'on' : 'off'}`); }
+    if (drawerPort !== undefined) { set.run('drawer_port', String(drawerPort).trim().slice(0, 40)); changes.push(`drawer port ${String(drawerPort).trim() || 'printer'}`); }
     if (storeName !== undefined && String(storeName).trim()) { set.run('store_name', String(storeName).trim().slice(0, 40)); changes.push('store name'); }
     if (header !== undefined) { set.run('receipt_header', String(header).slice(0, 400)); changes.push('receipt header'); }
     if (footer !== undefined) { set.run('receipt_footer', String(footer).slice(0, 400)); changes.push('receipt footer'); }
@@ -228,7 +240,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   }));
   app.post('/api/printer/drawer', wrap(async (req, res) => {
     if (!isManagerPin(db, req.body?.pin) && getSetting(db, 'no_sale_requires_pin', 'false') === 'true') throw new HttpError(403, 'A manager PIN is needed.');
-    await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, drawerBytes());
+    await openDrawer();
     res.json({ ok: true });
   }));
   app.post('/api/sales/:receiptNo/print', wrap(async (req, res) => {
@@ -315,9 +327,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
       }
       audit(db, String(cashier ?? ''), 'refund', `${sale.receipt_no} ${formatMoney(total)} ${tender} by ${manager}: ${why}`);
     })();
-    if (tender === 'cash' && getSetting(db, 'printer_target', '') && getSetting(db, 'drawer_kick', 'true') === 'true') {
-      sendToPrinter({ target: getSetting(db, 'printer_target', '') }, drawerBytes()).catch(() => {});
-    }
+    if (tender === 'cash' && getSetting(db, 'drawer_kick', 'true') === 'true') openDrawer().catch((e) => console.log(`[drawer] ${(e as Error).message}`));
     res.json({ ok: true, totalCents: total, tender });
   }));
 
@@ -394,9 +404,8 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
       .run(new Date().toISOString(), String(cashier ?? ''));
     audit(db, String(cashier ?? ''), 'no_sale');
     // Open the drawer through the receipt printer. The event is logged either way.
-    const printer = getSetting(db, 'printer_target', '');
-    if (!printer) { res.json({ ok: true, drawer: 'no-printer' }); return; }
-    sendToPrinter({ target: printer }, drawerBytes())
+    if (!getSetting(db, 'drawer_port', '') && !getSetting(db, 'printer_target', '')) { res.json({ ok: true, drawer: 'no-printer' }); return; }
+    openDrawer()
       .then(() => res.json({ ok: true, drawer: 'opened' }))
       .catch((e) => { console.log(`[printer] ${(e as Error).message}`); res.json({ ok: true, drawer: 'failed', message: (e as Error).message }); });
   }));

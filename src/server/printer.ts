@@ -97,6 +97,57 @@ export async function sendToPrinter(cfg: PrinterConfig, bytes: Buffer): Promise<
   } finally { fs.rmSync(tmp, { force: true }); }
 }
 
+// ---------- USB cash drawer (serial trigger) ----------
+// Drawers with a USB cable show up in Windows as a COM port (often a Prolific or CH340 "USB Serial").
+// They open when any ESC/POS drawer pulse arrives on that port; some also open on the DTR/RTS lines going high.
+const PS_DRAWER = `
+param([string]$Port, [string]$File)
+try {
+  $sp = New-Object System.IO.Ports.SerialPort $Port, 9600, 'None', 8, 'One'
+  $sp.WriteTimeout = 2000
+  $sp.Open()
+  $sp.DtrEnable = $true; $sp.RtsEnable = $true
+  $bytes = [System.IO.File]::ReadAllBytes($File)
+  $sp.Write($bytes, 0, $bytes.Length)
+  Start-Sleep -Milliseconds 400
+  $sp.DtrEnable = $false; $sp.RtsEnable = $false
+  $sp.Close()
+  "OK"
+} catch { "Drawer port " + $Port + ": " + $_.Exception.Message }
+`;
+
+/** Open a USB cash drawer on a serial port such as "COM4" (Windows) or "/dev/ttyUSB0" (Linux/Mac). */
+export async function pulseSerialDrawer(port: string, bytes: Buffer): Promise<void> {
+  const p = port.trim();
+  if (!p) throw new Error('No cash drawer port is set.');
+  const tmp = path.join(os.tmpdir(), `pos-drawer-${Date.now()}.bin`);
+  fs.writeFileSync(tmp, bytes);
+  try {
+    if (process.platform === 'win32') {
+      const script = path.join(os.tmpdir(), 'pos-drawer-v1.ps1');
+      if (!fs.existsSync(script)) fs.writeFileSync(script, PS_DRAWER);
+      const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Port', p, '-File', tmp], 10000);
+      const msg = r.out.trim().split('\n').pop()?.trim() ?? '';
+      if (r.code !== 0 || msg !== 'OK') throw new Error(msg || `Could not open the drawer on ${p}.`);
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        fs.writeFile(p, bytes, (e) => (e ? reject(new Error(`Could not open the drawer on ${p}: ${e.message}`)) : resolve()));
+      });
+    }
+  } finally { fs.rmSync(tmp, { force: true }); }
+}
+
+/** Serial ports present right now, with a friendly name (Windows only; empty elsewhere). */
+export async function listSerialPorts(): Promise<{ port: string; name: string }[]> {
+  if (process.platform !== 'win32') return [];
+  const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    "Get-CimInstance Win32_PnPEntity | Where-Object { $_.Name -match '\\((COM\\d+)\\)' } | ForEach-Object { $_.Name }"]);
+  return r.out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).map((name) => {
+    const m = /\((COM\d+)\)/.exec(name);
+    return { port: m?.[1] ?? name, name };
+  });
+}
+
 /** Names of installed printers (Windows only; empty elsewhere). */
 export async function listPrinters(): Promise<string[]> {
   if (process.platform !== 'win32') return [];
