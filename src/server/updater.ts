@@ -65,6 +65,7 @@ export function createUpdater(opts: UpdaterOptions) {
   const status: UpdateStatus = { current: opts.currentVersion, latest: null, state: 'idle', message: '', checkedAt: null, source: opts.source };
   let running = false;
   let onRestart: (() => void) | null = null;
+  let busyUntil = 0; // while a ticket is open on the register, hold off restarting
 
   async function readManifest(): Promise<Manifest> {
     if (/^https?:\/\//.test(opts.source)) {
@@ -137,7 +138,11 @@ export function createUpdater(opts: UpdaterOptions) {
       fs.writeFileSync(path.join(opts.root, 'updates', 'pending.json'), JSON.stringify({ version: m.version, npmInstall: needInstall, at: new Date().toISOString() }));
       status.state = 'restarting'; status.message = `Version ${m.version} installed. Restarting the register…`;
       log(status.message);
-      setTimeout(() => { onRestart?.(); process.exit(RESTART_EXIT_CODE); }, 1500);
+      const restartWhenIdle = () => {
+        if (Date.now() < busyUntil) { setTimeout(restartWhenIdle, 5000); return; }
+        onRestart?.(); process.exit(RESTART_EXIT_CODE);
+      };
+      setTimeout(restartWhenIdle, 1500);
       return status;
     } catch (e) {
       status.state = 'error'; status.message = (e as Error).message;
@@ -151,7 +156,9 @@ export function createUpdater(opts: UpdaterOptions) {
     setInterval(() => { check(); }, intervalMs).unref();
   }
 
-  return { check, start, status: () => status, onRestart: (fn: () => void) => { onRestart = fn; } };
+  return { check, start, status: () => status, onRestart: (fn: () => void) => { onRestart = fn; },
+    /** Called by the register screen; a ticket in progress keeps restarts on hold for a couple of minutes. */
+    setBusy: (open: boolean) => { busyUntil = open ? Date.now() + 120_000 : 0; } };
 }
 
 function readIfExists(p: string): string | null {

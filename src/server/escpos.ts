@@ -31,16 +31,18 @@ export class EscPos {
   bytes(): Buffer { return Buffer.concat(this.parts); }
 }
 
-export function receiptBytes(r: Receipt, opts: { kickDrawer?: boolean; cols?: number } = {}): Buffer {
+export type ReceiptText = { headerLines: string[]; footerLines: string[]; showCashier: boolean };
+
+export function receiptBytes(r: Receipt, opts: { kickDrawer?: boolean; cols?: number; text?: ReceiptText } = {}): Buffer {
   const p = new EscPos(opts.cols);
   if (opts.kickDrawer) p.drawer();
+  const text = opts.text ?? { headerLines: [r.store.address, r.store.phone].filter(Boolean), footerLines: [r.store.footer].filter(Boolean), showCashier: false };
   p.align('center').bold(true).size(2, 2).line(r.store.name).size(1, 1).bold(false);
-  if (r.store.address) p.line(r.store.address);
-  if (r.store.phone) p.line(r.store.phone);
+  for (const h of text.headerLines) if (h.trim()) p.line(h.trim());
   p.line('').align('left');
   const when = new Date(r.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
   p.row(`Receipt ${r.receiptNo}`, when);
-  p.row(`Cashier: ${r.cashier}`, '');
+  if (text.showCashier) p.row(`Cashier: ${r.cashier}`, '');
   p.rule();
   for (const l of r.lines) {
     const amount = formatCents(l.grossCents - l.discountCents);
@@ -62,8 +64,7 @@ export function receiptBytes(r: Receipt, opts: { kickDrawer?: boolean; cols?: nu
     if (r.payment.reference) p.row('Ref', r.payment.reference);
   }
   p.line('').align('center');
-  if (r.store.footer) p.line(r.store.footer);
-  if (r.store.refundPolicy) p.line(r.store.refundPolicy);
+  for (const f of text.footerLines) if (f.trim()) p.line(f.trim());
   p.cut();
   return p.bytes();
 }

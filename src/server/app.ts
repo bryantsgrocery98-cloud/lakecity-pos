@@ -7,7 +7,7 @@ import { computeTotals, lotteryLabel, type TicketLine } from '../core/ticket.js'
 import { workdayFor } from '../core/workday.js';
 import type { createUpdater } from './updater.js';
 import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
-import { receiptBytes, testBytes, zReportBytes } from './escpos.js';
+import { receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
 import { listPrinters, sendToPrinter } from './printer.js';
 import { buildDayReport } from './reports.js';
 import type {
@@ -45,6 +45,11 @@ export type AppExtras = { updater?: ReturnType<typeof createUpdater>; version?: 
 
 export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   const app = express();
+  const receiptText = (): ReceiptText => ({
+    headerLines: getSetting(db, 'receipt_header', [getSetting(db, 'store_address', ''), getSetting(db, 'store_phone', '')].filter(Boolean).join('\n')).split('\n'),
+    footerLines: getSetting(db, 'receipt_footer', 'Thank you! Please come again.').split('\n'),
+    showCashier: getSetting(db, 'receipt_show_cashier', 'false') === 'true',
+  });
   app.use(express.json({ limit: '6mb' }));
   const imagesDir = extras.imagesDir ?? path.join(process.cwd(), 'data', 'images');
   fs.mkdirSync(imagesDir, { recursive: true });
@@ -189,23 +194,31 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const kick = pay.tender === 'cash' && getSetting(db, 'drawer_kick', 'true') === 'true';
     const auto = getSetting(db, 'print_receipts', 'false') === 'true';
     if (printer && (kick || auto)) {
-      const bytes = auto ? receiptBytes(receipt, { kickDrawer: kick }) : Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa]);
+      const bytes = auto ? receiptBytes(receipt, { kickDrawer: kick, text: receiptText() }) : Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa]);
       sendToPrinter({ target: printer }, bytes).catch((e) => console.log(`[printer] ${(e as Error).message}`));
     }
   }));
 
   // ---------- printing ----------
   app.get('/api/printer', wrap(async (_req, res) => {
+    const t = receiptText();
     res.json({ target: getSetting(db, 'printer_target', ''), printReceipts: getSetting(db, 'print_receipts', 'false') === 'true',
-      drawerKick: getSetting(db, 'drawer_kick', 'true') === 'true', available: await listPrinters() });
+      drawerKick: getSetting(db, 'drawer_kick', 'true') === 'true', available: await listPrinters(),
+      storeName: getSetting(db, 'store_name', ''), header: t.headerLines.join('\n'), footer: t.footerLines.join('\n'), showCashier: t.showCashier });
   }));
   app.post('/api/printer', wrap((req, res) => {
-    const { pin, target, printReceipts, drawerKick } = req.body ?? {};
+    const { pin, cashier, target, printReceipts, drawerKick, storeName, header, footer, showCashier } = req.body ?? {};
     if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
     const set = db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`);
-    if (target !== undefined) set.run('printer_target', String(target).trim().slice(0, 120));
-    if (printReceipts !== undefined) set.run('print_receipts', printReceipts ? 'true' : 'false');
-    if (drawerKick !== undefined) set.run('drawer_kick', drawerKick ? 'true' : 'false');
+    const changes: string[] = [];
+    if (target !== undefined) { set.run('printer_target', String(target).trim().slice(0, 120)); changes.push('printer'); }
+    if (printReceipts !== undefined) { set.run('print_receipts', printReceipts ? 'true' : 'false'); changes.push(`auto receipts ${printReceipts ? 'on' : 'off'}`); }
+    if (drawerKick !== undefined) { set.run('drawer_kick', drawerKick ? 'true' : 'false'); changes.push(`drawer kick ${drawerKick ? 'on' : 'off'}`); }
+    if (storeName !== undefined && String(storeName).trim()) { set.run('store_name', String(storeName).trim().slice(0, 40)); changes.push('store name'); }
+    if (header !== undefined) { set.run('receipt_header', String(header).slice(0, 400)); changes.push('receipt header'); }
+    if (footer !== undefined) { set.run('receipt_footer', String(footer).slice(0, 400)); changes.push('receipt footer'); }
+    if (showCashier !== undefined) { set.run('receipt_show_cashier', showCashier ? 'true' : 'false'); changes.push('cashier on receipt'); }
+    if (changes.length) audit(db, String(cashier ?? ''), 'settings', changes.join(', '));
     res.json({ ok: true });
   }));
   app.post('/api/printer/test', wrap(async (req, res) => {
@@ -221,7 +234,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   app.post('/api/sales/:receiptNo/print', wrap(async (req, res) => {
     const r = loadReceipt(db, String(req.params.receiptNo));
     if (!r) throw new HttpError(404, 'Receipt not found.');
-    await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, receiptBytes(r));
+    await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, receiptBytes(r, { text: receiptText() }));
     res.json({ ok: true });
   }));
 
@@ -560,6 +573,14 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   }));
   let imageJob = { total: 0, done: 0, ok: 0, running: false };
   app.get('/api/import/images/status', wrap((_req, res) => res.json(imageJob)));
+
+  // ---------- version and activity (the screen reloads itself after an update; the updater waits while a ticket is open) ----------
+  app.get('/api/version', (_req, res) => { res.json({ version: extras.version ?? '0' }); });
+  app.post('/api/activity', wrap((req, res) => {
+    const open = !!req.body?.ticketOpen;
+    extras.updater?.setBusy(open);
+    res.json({ ok: true });
+  }));
 
   // ---------- updates ----------
   app.get('/api/update/status', wrap((_req, res) => {

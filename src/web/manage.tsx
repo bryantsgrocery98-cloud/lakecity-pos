@@ -16,7 +16,7 @@ type DayReport = {
   tenders: { tender: string; cents: number; count: number }[]; lottery: { sales: number; payouts: number }; noSales: number;
   items: { name: string; qty: number; cents: number }[];
 };
-type PrinterCfg = { target: string; printReceipts: boolean; drawerKick: boolean; available: string[] };
+type PrinterCfg = { target: string; printReceipts: boolean; drawerKick: boolean; available: string[]; storeName: string; header: string; footer: string; showCashier: boolean };
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
@@ -297,6 +297,34 @@ function PrinterTab({ pin }: { pin: string }) {
         <button className={`chip ${cfg.drawerKick ? 'on' : ''}`} onClick={() => save({ drawerKick: !cfg.drawerKick })}>Open drawer on cash sales: {cfg.drawerKick ? 'ON' : 'OFF'}</button>
       </div>
       <div className="hint">With automatic receipts off, the cashier can still print one from the Sale Complete screen or reprint it later from the Sales tab.</div>
+      <div className="editor-label">RECEIPT TEXT</div>
+      <TextSetting label="Store name (big, top line)" value={cfg.storeName} onSave={(v) => save({ storeName: v })} />
+      <TextSetting label="Header lines (address, phone…)" value={cfg.header} multiline onSave={(v) => save({ header: v })} />
+      <TextSetting label="Footer lines (thank you, return policy…)" value={cfg.footer} multiline onSave={(v) => save({ footer: v })} />
+      <div className="chips">
+        <button className={`chip ${cfg.showCashier ? 'on' : ''}`} onClick={() => save({ showCashier: !cfg.showCashier })}>Show cashier name on receipt: {cfg.showCashier ? 'ON' : 'OFF'}</button>
+      </div>
+      <div className="hint">The receipt always shows the receipt number, date, items, subtotal, each tax, total, and how it was paid.</div>
+    </div>
+  );
+}
+
+function TextSetting({ label, value, multiline, onSave }: { label: string; value: string; multiline?: boolean; onSave: (v: string) => void }) {
+  const [v, setV] = useState(value);
+  const [kb, setKb] = useState(false);
+  useEffect(() => setV(value), [value]);
+  return (
+    <div className="field" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+      <span className="field-label">{label}</span>
+      {multiline
+        ? <textarea value={v} onChange={(e) => setV(e.target.value)} rows={3} style={{ font: 'inherit', fontSize: 17, border: '1px solid var(--line-2)', borderRadius: 10, padding: 8, resize: 'vertical' }} />
+        : <input value={v} onChange={(e) => setV(e.target.value)} style={{ font: 'inherit', fontSize: 18, border: '1px solid var(--line-2)', borderRadius: 10, padding: 8 }} />}
+      {kb && <OnScreenKeyboard onChar={(c) => setV((s) => s + c)} onBack={() => setV((s) => s.slice(0, -1))} onClear={() => setV('')} onDone={() => setKb(false)} />}
+      <div className="quick" style={{ gridTemplateColumns: 'auto auto 1fr' }}>
+        <button className="btn btn-sm" onClick={() => setKb(!kb)}><Icon name="keyboard" size={18} /></button>
+        <button className="btn btn-sm btn-primary" disabled={v === value} onClick={() => onSave(v)}>Save</button>
+        <span />
+      </div>
     </div>
   );
 }

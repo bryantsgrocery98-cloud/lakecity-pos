@@ -24,7 +24,7 @@ type ModalState =
   | { t: 'confirm'; title: string; message: string; yes: string; onYes: () => void }
   | { t: 'receipt'; receipt: Receipt };
 
-type User = { name: string; role: string };
+type User = { name: string; role: string; pin: string };
 
 let seq = 0;
 const newKey = () => `k${++seq}`;
@@ -50,6 +50,31 @@ export function App() {
   const [inventory, setInventory] = useState<string | null>(null);
   const [manage, setManage] = useState<string | null>(null);
   const [sounds, setSounds] = useState(soundsEnabled());
+  const [updateReady, setUpdateReady] = useState<string | null>(null);
+
+  // Tell the register program whether a ticket is open, so it never restarts for an update mid-sale.
+  useEffect(() => {
+    const open = lines.length > 0;
+    api('/api/activity', { ticketOpen: open }).catch(() => {});
+    if (!open) return;
+    const t = window.setInterval(() => api('/api/activity', { ticketOpen: true }).catch(() => {}), 60_000);
+    return () => window.clearInterval(t);
+  }, [lines.length > 0]);
+
+  // After the program updates itself, reload this screen as soon as the ticket is empty.
+  useEffect(() => {
+    if (!boot) return;
+    const t = window.setInterval(async () => {
+      try {
+        const v = (await api<{ version: string }>('/api/version')).version;
+        if (v !== boot.version) setUpdateReady(v);
+      } catch { /* the program is restarting; try again shortly */ }
+    }, 20_000);
+    return () => window.clearInterval(t);
+  }, [boot]);
+  useEffect(() => {
+    if (updateReady && lines.length === 0 && !modal) window.setTimeout(() => window.location.reload(), 1500);
+  }, [updateReady, lines.length, modal]);
   useEffect(() => installTapSound(), []); // manager PIN while the inventory page is open
   const invScan = useRef<((code: string) => void) | null>(null);
   const tap = useRef({ id: '', t: 0 });
@@ -57,6 +82,13 @@ export function App() {
   const focusSearch = () => { if (!modalRef.current) searchRef.current?.focus(); };
   const modalRef = useRef<ModalState | null>(null);
   const manualPin = useRef<string | undefined>(undefined);
+
+  const isMgr = user?.role === 'manager' || user?.role === 'owner';
+  /** Managers and owners act on their own login; cashiers are asked for a manager's PIN. */
+  const withPin = (title: string, hint: string, then: (pin: string) => void) => {
+    if (isMgr && user) then(user.pin);
+    else setModal({ t: 'pin', title, hint, then: (p) => { setModal(null); then(p); } });
+  };
 
   const showToast = useCallback((msg: string, bad = false) => {
     setToast({ msg, bad });
@@ -264,7 +296,7 @@ export function App() {
       setModal(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) {
-        setModal({ t: 'pin', title: 'Manager PIN', hint: 'A manager PIN is needed to open the drawer without a sale.', then: (p) => noSale(p) });
+        withPin('Manager PIN', 'A manager PIN is needed to open the drawer without a sale.', (p) => noSale(p));
       } else showToast((e as Error).message, true);
     }
   };
@@ -291,14 +323,14 @@ export function App() {
   const startManual = () => {
     if (!boot) return;
     if (boot.settings.scanIdOnly) {
-      setModal({ t: 'pin', title: 'Manager PIN', hint: 'Typing a birth date needs a manager PIN while Scan ID only is on.', then: (pin) => { manualPin.current = pin; setModal({ t: 'dob' }); } });
+      withPin('Manager PIN', 'Typing a birth date needs a manager PIN while Scan ID only is on.', (pin) => { manualPin.current = pin; setModal({ t: 'dob' }); });
     } else { manualPin.current = undefined; setModal({ t: 'dob' }); }
   };
 
   const startOverride = () => {
-    setModal({ t: 'pin', title: 'Manager PIN', hint: 'A manager is approving this sale after checking the ID by hand.', then: (pin) => {
+    withPin('Manager PIN', 'A manager is approving this sale after checking the ID by hand.', (pin) => {
       setAgeInfo({ method: 'manager_override', ageYears: null, expired: false, managerPin: pin }); setModal({ t: 'id' });
-    } });
+    });
   };
 
   // ---------- render ----------
@@ -333,13 +365,14 @@ export function App() {
       <header className="topbar">
         <div><span className="brand">{boot.store.name}</span><span className="sub">Register 1</span></div>
         <div className="topbar-right">
+          {updateReady && <span className="pill" style={{ background: '#1c4a3c', color: '#bff0dc' }}>Update {updateReady} ready</span>}
           <span className="pill">Cashier: {user.name}</span>
-          <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setModal({ t: 'pin', title: 'Inventory', hint: 'A manager or owner PIN opens inventory.', then: (pin) => { setModal(null); setInventory(pin); } })}>
+          {isMgr && <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setInventory(user.pin)}>
             <Icon name="box" size={20} /> Inventory
-          </button>
-          <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setModal({ t: 'pin', title: 'Manage', hint: 'A manager or owner PIN opens sales, reports, and the printer.', then: (pin) => { setModal(null); setManage(pin); } })}>
+          </button>}
+          {isMgr && <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setManage(user.pin)}>
             <Icon name="settings" size={20} /> Manage
-          </button>
+          </button>}
           <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setModal({ t: 'today' })}>
             <Icon name="report" size={20} /> Today
           </button>
@@ -553,7 +586,7 @@ function Login({ store, onLogin }: { store: string; onLogin: (u: User) => void }
     else if (k !== '00') setPin((p) => (p + k).slice(0, 8));
   };
   const submit = async () => {
-    try { onLogin(await api<User>('/api/login', { pin })); }
+    try { onLogin({ ...(await api<{ name: string; role: string }>('/api/login', { pin })), pin }); }
     catch (e) { setError((e as Error).message); setPin(''); }
   };
   return (
