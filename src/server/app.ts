@@ -226,7 +226,10 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     if (printReceipts !== undefined) { set.run('print_receipts', printReceipts ? 'true' : 'false'); changes.push(`auto receipts ${printReceipts ? 'on' : 'off'}`); }
     if (drawerKick !== undefined) { set.run('drawer_kick', drawerKick ? 'true' : 'false'); changes.push(`drawer kick ${drawerKick ? 'on' : 'off'}`); }
     if (drawerPort !== undefined) { set.run('drawer_port', String(drawerPort).trim().slice(0, 40)); changes.push(`drawer port ${String(drawerPort).trim() || 'printer'}`); }
-    if (storeName !== undefined && String(storeName).trim()) { set.run('store_name', String(storeName).trim().slice(0, 40)); changes.push('store name'); }
+    if (storeName !== undefined) {
+      if (!String(storeName).trim()) throw new HttpError(400, 'The store name cannot be blank.');
+      set.run('store_name', String(storeName).trim().slice(0, 40)); changes.push('store name');
+    }
     if (header !== undefined) { set.run('receipt_header', String(header).slice(0, 400)); changes.push('receipt header'); }
     if (footer !== undefined) { set.run('receipt_footer', String(footer).slice(0, 400)); changes.push('receipt footer'); }
     if (showCashier !== undefined) { set.run('receipt_show_cashier', showCashier ? 'true' : 'false'); changes.push('cashier on receipt'); }

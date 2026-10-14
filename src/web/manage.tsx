@@ -264,8 +264,9 @@ function PrinterTab({ pin }: { pin: string }) {
   useEffect(() => { api<PrinterCfg>('/api/printer').then((c) => { setCfg(c); setTarget(c.target); }).catch((e: Error) => setMsg(e.message)); }, []);
   if (!cfg) return <div className="hint">Loading…</div>;
   const save = async (patch: Partial<PrinterCfg>) => {
-    try { await api('/api/printer', { pin, ...patch }); setCfg({ ...cfg, ...patch }); setMsg('Saved.'); } catch (e) { setMsg((e as Error).message); }
+    try { await api('/api/printer', { pin, ...patch }); setCfg({ ...cfg, ...patch }); setMsg('Saved.'); } catch (e) { setMsg((e as Error).message); throw e; }
   };
+  const toggle = (patch: Partial<PrinterCfg>) => { save(patch).catch(() => {}); };
   const test = async () => {
     setBusy(true); setMsg('');
     try { await api('/api/printer/test', { target }); setMsg('Test page sent. Check the printer.'); play('done'); } catch (e) { setMsg((e as Error).message); play('bad'); } finally { setBusy(false); }
@@ -289,20 +290,20 @@ function PrinterTab({ pin }: { pin: string }) {
       {kb && <OnScreenKeyboard onChar={(c) => setTarget((s) => s + c)} onBack={() => setTarget((s) => s.slice(0, -1))} onClear={() => setTarget('')} onDone={() => setKb(false)} />}
       <div className="quick" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
         <button className="btn btn-primary" disabled={busy || !target} onClick={test}>Print test page</button>
-        <button className="btn" disabled={target === cfg.target} onClick={() => save({ target })}>Save printer</button>
+        <button className="btn" disabled={target === cfg.target} onClick={() => toggle({ target })}>Save printer</button>
         <button className="btn" disabled={!canOpen} onClick={drawer}>Open register now</button>
       </div>
       <div className="hint">For a network printer type <b>tcp://</b> and its address, like tcp://192.168.1.50.</div>
       <div className="editor-label">CASH DRAWER</div>
       <div className="chips">
-        <button className={`chip ${!cfg.drawerPort ? 'on' : ''}`} onClick={() => save({ drawerPort: '' })}>Plugged into the printer</button>
-        {cfg.serialPorts.map((sp) => <button key={sp.port} className={`chip ${cfg.drawerPort === sp.port ? 'on' : ''}`} onClick={() => save({ drawerPort: sp.port })}>USB: {sp.name}</button>)}
+        <button className={`chip ${!cfg.drawerPort ? 'on' : ''}`} onClick={() => toggle({ drawerPort: '' })}>Plugged into the printer</button>
+        {cfg.serialPorts.map((sp) => <button key={sp.port} className={`chip ${cfg.drawerPort === sp.port ? 'on' : ''}`} onClick={() => toggle({ drawerPort: sp.port })}>USB: {sp.name}</button>)}
       </div>
       <div className="hint">A drawer with a phone-style cable plugs into the printer. A drawer with a USB cable shows up here as a COM port; pick it, then press <b>Open register now</b> to test.{cfg.serialPorts.length === 0 && ' (No USB drawer found right now; check its cable and come back to this tab.)'}</div>
       <div className="editor-label">AFTER EACH SALE</div>
       <div className="chips">
-        <button className={`chip ${cfg.printReceipts ? 'on' : ''}`} onClick={() => save({ printReceipts: !cfg.printReceipts })}>Print a receipt automatically: {cfg.printReceipts ? 'ON' : 'OFF'}</button>
-        <button className={`chip ${cfg.drawerKick ? 'on' : ''}`} onClick={() => save({ drawerKick: !cfg.drawerKick })}>Open register on cash sales: {cfg.drawerKick ? 'ON' : 'OFF'}</button>
+        <button className={`chip ${cfg.printReceipts ? 'on' : ''}`} onClick={() => toggle({ printReceipts: !cfg.printReceipts })}>Print a receipt automatically: {cfg.printReceipts ? 'ON' : 'OFF'}</button>
+        <button className={`chip ${cfg.drawerKick ? 'on' : ''}`} onClick={() => toggle({ drawerKick: !cfg.drawerKick })}>Open register on cash sales: {cfg.drawerKick ? 'ON' : 'OFF'}</button>
       </div>
       <div className="hint">With automatic receipts off, the cashier can still print one from the Sale Complete screen or reprint it later from the Sales tab.</div>
       <div className="editor-label">RECEIPT TEXT</div>
@@ -310,17 +311,23 @@ function PrinterTab({ pin }: { pin: string }) {
       <TextSetting label="Header lines (address, phone…)" value={cfg.header} multiline onSave={(v) => save({ header: v })} />
       <TextSetting label="Footer lines (thank you, return policy…)" value={cfg.footer} multiline onSave={(v) => save({ footer: v })} />
       <div className="chips">
-        <button className={`chip ${cfg.showCashier ? 'on' : ''}`} onClick={() => save({ showCashier: !cfg.showCashier })}>Show cashier name on receipt: {cfg.showCashier ? 'ON' : 'OFF'}</button>
+        <button className={`chip ${cfg.showCashier ? 'on' : ''}`} onClick={() => toggle({ showCashier: !cfg.showCashier })}>Show cashier name on receipt: {cfg.showCashier ? 'ON' : 'OFF'}</button>
       </div>
       <div className="hint">The receipt always shows the receipt number, date, items, subtotal, each tax, total, and how it was paid.</div>
     </div>
   );
 }
 
-function TextSetting({ label, value, multiline, onSave }: { label: string; value: string; multiline?: boolean; onSave: (v: string) => void }) {
+function TextSetting({ label, value, multiline, onSave }: { label: string; value: string; multiline?: boolean; onSave: (v: string) => Promise<void> }) {
   const [v, setV] = useState(value);
   const [kb, setKb] = useState(false);
+  const [state, setState] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   useEffect(() => setV(value), [value]);
+  const save = async () => {
+    setState(null);
+    try { await onSave(v); setState({ kind: 'ok', text: 'Saved' }); play('done'); }
+    catch (e) { setState({ kind: 'err', text: (e as Error).message }); play('bad'); }
+  };
   return (
     <div className="field" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
       <span className="field-label">{label}</span>
@@ -330,8 +337,10 @@ function TextSetting({ label, value, multiline, onSave }: { label: string; value
       {kb && <OnScreenKeyboard onChar={(c) => setV((s) => s + c)} onBack={() => setV((s) => s.slice(0, -1))} onClear={() => setV('')} onDone={() => setKb(false)} />}
       <div className="quick" style={{ gridTemplateColumns: 'auto auto 1fr' }}>
         <button className="btn btn-sm" onClick={() => setKb(!kb)}><Icon name="keyboard" size={18} /></button>
-        <button className="btn btn-sm btn-primary" disabled={v === value} onClick={() => onSave(v)}>Save</button>
-        <span />
+        <button className="btn btn-sm btn-primary" onClick={save}>Save</button>
+        <span style={{ alignSelf: 'center', color: state?.kind === 'err' ? 'var(--bad, #c0392b)' : 'var(--good, #1c7c4a)', fontWeight: 600 }}>
+          {state?.text ?? (v !== value ? 'Not saved yet' : '')}
+        </span>
       </div>
     </div>
   );
