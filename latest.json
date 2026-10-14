@@ -1,7 +1,7 @@
 {
-  "version": "0.6.1",
-  "file": "lakecity-pos-0.6.1.zip",
-  "sha256": "8a25e0bb465c9bbe411e1d88a07e08a5f2b589e8be4e7806656d05dee4361adb",
-  "notes": "Desktop icon, starts at sign-in, runs without a console window, log file",
-  "builtAt": "2026-10-14T03:35:20.930Z"
+  "version": "0.6.2",
+  "file": "lakecity-pos-0.6.2.zip",
+  "sha256": "a2bcbd171842bbaedd4d27f126fd6edca3891055d050f7f4f656e537c78d54b2",
+  "notes": "Open Register button opens the cash drawer; stronger drawer pulse on both pins for cash sales; register opens full screen by itself.",
+  "builtAt": "2026-10-14T03:53:48.284Z"
 }
