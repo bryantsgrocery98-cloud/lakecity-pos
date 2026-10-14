@@ -1,7 +1,7 @@
 {
-  "version": "0.5.1",
-  "file": "lakecity-pos-0.5.1.zip",
-  "sha256": "d8de2bd9a0deaf533a989fce563d782aea8b0f2485c2810dd73d6b1d130908c2",
-  "notes": "Card payment is one tap; the card machine handles the charge",
-  "builtAt": "2026-10-14T02:41:29.638Z"
+  "version": "0.6.0",
+  "file": "lakecity-pos-0.6.0.zip",
+  "sha256": "a7d81e98f6d6a019775d9bca5d8974906d096a532e17d027b6462684a92aeb3a",
+  "notes": "Sign in once (role decides access), receipt text settings, screen reloads itself after updates, no restarts mid-ticket",
+  "builtAt": "2026-10-14T02:59:27.769Z"
 }
