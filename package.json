@@ -1,6 +1,6 @@
 {
   "name": "lakecity-pos",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Free touch-first POS for a small convenience store",
   "main": "index.js",
   "scripts": {
@@ -35,5 +35,5 @@
     "vite": "^8.3.4",
     "vitest": "^5.0.4"
   },
-  "posUpdateSource": "1NaGsieYVV37h7KUsPL1CXuWHV_d0Q-f0"
+  "posUpdateSource": "https://raw.githubusercontent.com/bryantsgrocery98-cloud/lakecity-pos/updates/latest.json"
 }

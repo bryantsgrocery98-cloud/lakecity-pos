@@ -29,4 +29,19 @@ fs.writeFileSync(path.join(outDir, file), buf);
 const sha256 = createHash('sha256').update(buf).digest('hex');
 const manifest = { version: pkg.version, file, sha256, notes, builtAt: new Date().toISOString() };
 fs.writeFileSync(path.join(outDir, 'latest.json'), JSON.stringify(manifest, null, 2));
-console.log(`Built ${file} (${(buf.length / 1024).toFixed(0)} KB)\nsha256 ${sha256}\nUpload release/${file} and release/latest.json to the Drive update folder.`);
+console.log(`Built ${file} (${(buf.length / 1024).toFixed(0)} KB)\nsha256 ${sha256}`);
+
+// Publish: copy the build onto the `updates` branch and push it. Registers pick it up within the hour.
+if (process.env.PUBLISH !== '0') {
+  const wt = path.join(root, '.updates-worktree');
+  const git = (args) => execSync(`git ${args}`, { cwd: wt, stdio: 'pipe' }).toString();
+  if (!fs.existsSync(wt)) execSync(`git worktree add ${wt} updates`, { cwd: root, stdio: 'inherit' });
+  git('pull -q --ff-only origin updates');
+  for (const old of fs.readdirSync(wt).filter((f) => f.endsWith('.zip') && f !== file)) fs.rmSync(path.join(wt, old));
+  fs.copyFileSync(path.join(outDir, file), path.join(wt, file));
+  fs.copyFileSync(path.join(outDir, 'latest.json'), path.join(wt, 'latest.json'));
+  git('add -A');
+  git(`-c user.name=Claude -c user.email=noreply@anthropic.com commit -qm "Publish ${pkg.version}"`);
+  git('push -q origin updates');
+  console.log(`Published ${pkg.version} to the updates branch. Registers will update themselves.`);
+}

@@ -5,3 +5,4 @@ release/
 updates/
 *.log
 .DS_Store
+.updates-worktree/
