@@ -7,7 +7,7 @@ import { computeTotals, lotteryLabel, type TicketLine } from '../core/ticket.js'
 import { workdayFor } from '../core/workday.js';
 import type { createUpdater } from './updater.js';
 import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
-import { receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
+import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
 import { listPrinters, sendToPrinter } from './printer.js';
 import { buildDayReport } from './reports.js';
 import type {
@@ -194,7 +194,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const kick = pay.tender === 'cash' && getSetting(db, 'drawer_kick', 'true') === 'true';
     const auto = getSetting(db, 'print_receipts', 'false') === 'true';
     if (printer && (kick || auto)) {
-      const bytes = auto ? receiptBytes(receipt, { kickDrawer: kick, text: receiptText() }) : Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa]);
+      const bytes = auto ? receiptBytes(receipt, { kickDrawer: kick, text: receiptText() }) : drawerBytes();
       sendToPrinter({ target: printer }, bytes).catch((e) => console.log(`[printer] ${(e as Error).message}`));
     }
   }));
@@ -228,7 +228,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   }));
   app.post('/api/printer/drawer', wrap(async (req, res) => {
     if (!isManagerPin(db, req.body?.pin) && getSetting(db, 'no_sale_requires_pin', 'false') === 'true') throw new HttpError(403, 'A manager PIN is needed.');
-    await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa]));
+    await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, drawerBytes());
     res.json({ ok: true });
   }));
   app.post('/api/sales/:receiptNo/print', wrap(async (req, res) => {
@@ -316,7 +316,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
       audit(db, String(cashier ?? ''), 'refund', `${sale.receipt_no} ${formatMoney(total)} ${tender} by ${manager}: ${why}`);
     })();
     if (tender === 'cash' && getSetting(db, 'printer_target', '') && getSetting(db, 'drawer_kick', 'true') === 'true') {
-      sendToPrinter({ target: getSetting(db, 'printer_target', '') }, Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa])).catch(() => {});
+      sendToPrinter({ target: getSetting(db, 'printer_target', '') }, drawerBytes()).catch(() => {});
     }
     res.json({ ok: true, totalCents: total, tender });
   }));
@@ -393,7 +393,12 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     db.prepare(`INSERT INTO cash_events (ts, cashier, type, amount_cents) VALUES (?, ?, 'no_sale', 0)`)
       .run(new Date().toISOString(), String(cashier ?? ''));
     audit(db, String(cashier ?? ''), 'no_sale');
-    res.json({ ok: true });
+    // Open the drawer through the receipt printer. The event is logged either way.
+    const printer = getSetting(db, 'printer_target', '');
+    if (!printer) { res.json({ ok: true, drawer: 'no-printer' }); return; }
+    sendToPrinter({ target: printer }, drawerBytes())
+      .then(() => res.json({ ok: true, drawer: 'opened' }))
+      .catch((e) => { console.log(`[printer] ${(e as Error).message}`); res.json({ ok: true, drawer: 'failed', message: (e as Error).message }); });
   }));
 
   app.post('/api/lottery-payout', wrap((req, res) => {

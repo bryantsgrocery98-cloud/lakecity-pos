@@ -18,8 +18,8 @@ export class EscPos {
   size(w: 1 | 2, h: 1 | 2) { return this.raw([GS, 0x21, ((w - 1) << 4) | (h - 1)]); }
   feed(n = 1) { return this.raw([ESC, 0x64, n]); }
   cut() { return this.feed(3).raw([GS, 0x56, 0x42, 0x00]); } // partial cut
-  /** Pulse the cash drawer on pin 2 (most drawers) or pin 5. */
-  drawer(pin: 2 | 5 = 2) { return this.raw([ESC, 0x70, pin === 2 ? 0 : 1, 0x19, 0xfa]); }
+  /** Open the cash drawer. Pulses both drawer pins with a long pulse so any wiring works. */
+  drawer() { return this.raw(drawerBytes()); }
   rule(ch = '-') { return this.line(ch.repeat(this.cols)); }
   /** Two columns: left text and right-aligned value on one line. */
   row(left: string, right: string) {
@@ -31,7 +31,12 @@ export class EscPos {
   bytes(): Buffer { return Buffer.concat(this.parts); }
 }
 
-export type ReceiptText = { headerLines: string[]; footerLines: string[]; showCashier: boolean };
+/** ESC p m t1 t2: drawer kick on pin 2 then pin 5, 200 ms on / 500 ms off. Works with the Rongta RP326 and most drawers. */
+export function drawerBytes(): Buffer {
+  return Buffer.from([ESC, 0x70, 0x00, 0x64, 0xfa, ESC, 0x70, 0x01, 0x64, 0xfa]);
+}
+
+export type ReceiptText ={ headerLines: string[]; footerLines: string[]; showCashier: boolean };
 
 export function receiptBytes(r: Receipt, opts: { kickDrawer?: boolean; cols?: number; text?: ReceiptText } = {}): Buffer {
   const p = new EscPos(opts.cols);

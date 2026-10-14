@@ -24,9 +24,13 @@ A free, touch-first point of sale for a small convenience store. Runs on one Win
 
 1. Install Node.js 22 (LTS) from https://nodejs.org. Accept the defaults.
 2. Unzip `lakecity-pos.zip` into a folder, for example `C:\POS`.
-3. Double-click `start-pos.bat`. The first run installs its parts (needs internet once, about a minute). After that it runs offline.
-4. A browser window opens at `http://localhost:3000`. Press **F11** for full screen.
+3. Double-click `setup-windows.bat` once. It installs the parts (needs internet once, about a minute), puts a **Bryants POS** icon on the desktop, and makes the register start by itself when you sign in to Windows.
+4. The register opens full screen in its own window. (Press **F11** to leave full screen; `start-pos.bat` opens it with a console window if you ever need to see messages.)
 5. Sign in with PIN `1111`.
+
+Updates install themselves: the register checks every hour and reloads its own screen between tickets. Logs are in `data\logs\pos.log`.
+
+The cash drawer plugs into the receipt printer's drawer port. It opens on cash sales, cash refunds, and the **Open Register** button.
 
 The register is only reachable from that computer. Nothing is exposed to the network.
 

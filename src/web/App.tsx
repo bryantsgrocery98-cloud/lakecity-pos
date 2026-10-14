@@ -291,8 +291,10 @@ export function App() {
   const noSale = async (pin?: string) => {
     if (!user) return;
     try {
-      await api('/api/no-sale', { cashier: user.name, pin });
-      showToast('No Sale recorded. The drawer will open here once a receipt printer is set up.');
+      const r = await api<{ drawer: string; message?: string }>('/api/no-sale', { cashier: user.name, pin });
+      if (r.drawer === 'opened') showToast('Register opened (No Sale).');
+      else if (r.drawer === 'no-printer') showToast('No Sale recorded. Pick the receipt printer under Manage → Printer so the register can open.', true);
+      else showToast(`No Sale recorded, but the drawer did not open: ${r.message ?? 'printer problem'}`, true);
       setModal(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) {
@@ -528,7 +530,7 @@ export function App() {
           <div className="actions">
             <button className="act hold" onClick={holdTicket}><Icon name="hold" /> Hold{holds.length > 0 && <span className="badge" data-testid="hold-badge">{holds.length}</span>}</button>
             <button className="act" onClick={openRecall}><Icon name="recall" /> Recall</button>
-            <button className="act" onClick={() => noSale()}><Icon name="drawer" /> No Sale</button>
+            <button className="act" onClick={() => noSale()}><Icon name="drawer" /> Open Register</button>
             <button className="act" onClick={() => setModal({ t: 'discount' })}><Icon name="discount" /> Discount</button>
           </div>
 

@@ -48,9 +48,11 @@ function openBrowser() {
   try {
     const exe = findBrowser();
     if (exe) {
-      // App mode: no tabs or address bar, its own window. F11 toggles full screen.
+      // App mode: no tabs or address bar, opens full screen on its own. F11 leaves full screen if ever needed.
+      // Set POS_WINDOWED=1 to open as a normal window instead.
       const profile = path.join(root, 'data', 'browser-profile');
-      spawn(exe, [`--app=${url}`, '--start-maximized', '--no-first-run', '--disable-session-crashed-bubble', `--user-data-dir=${profile}`], { stdio: 'ignore', detached: true }).unref();
+      const size = process.env.POS_WINDOWED ? ['--start-maximized'] : ['--start-fullscreen'];
+      spawn(exe, [`--app=${url}`, ...size, '--no-first-run', '--disable-session-crashed-bubble', '--disable-features=TranslateUI', `--user-data-dir=${profile}`], { stdio: 'ignore', detached: true }).unref();
     } else {
       const cmd = isWin ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
       spawn(cmd[0], cmd[1], { stdio: 'ignore', detached: true }).unref();

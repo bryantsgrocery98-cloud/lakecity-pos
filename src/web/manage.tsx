@@ -288,13 +288,13 @@ function PrinterTab({ pin }: { pin: string }) {
       <div className="quick" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
         <button className="btn btn-primary" disabled={busy || !target} onClick={test}>Print test page</button>
         <button className="btn" disabled={target === cfg.target} onClick={() => save({ target })}>Save printer</button>
-        <button className="btn" disabled={!cfg.target} onClick={drawer}>Open drawer</button>
+        <button className="btn" disabled={!cfg.target} onClick={drawer}>Open register now</button>
       </div>
       <div className="hint">For a network printer type <b>tcp://</b> and its address, like tcp://192.168.1.50. The cash drawer must plug into the printer's drawer port.</div>
       <div className="editor-label">AFTER EACH SALE</div>
       <div className="chips">
         <button className={`chip ${cfg.printReceipts ? 'on' : ''}`} onClick={() => save({ printReceipts: !cfg.printReceipts })}>Print a receipt automatically: {cfg.printReceipts ? 'ON' : 'OFF'}</button>
-        <button className={`chip ${cfg.drawerKick ? 'on' : ''}`} onClick={() => save({ drawerKick: !cfg.drawerKick })}>Open drawer on cash sales: {cfg.drawerKick ? 'ON' : 'OFF'}</button>
+        <button className={`chip ${cfg.drawerKick ? 'on' : ''}`} onClick={() => save({ drawerKick: !cfg.drawerKick })}>Open register on cash sales: {cfg.drawerKick ? 'ON' : 'OFF'}</button>
       </div>
       <div className="hint">With automatic receipts off, the cashier can still print one from the Sale Complete screen or reprint it later from the Sales tab.</div>
       <div className="editor-label">RECEIPT TEXT</div>
