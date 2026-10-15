@@ -1,7 +1,7 @@
 {
-  "version": "0.6.5",
-  "file": "lakecity-pos-0.6.5.zip",
-  "sha256": "d44e302ce272bc3e5651d95eaab8179735463b82663df4d5d2e69a48442ee5a5",
-  "notes": "Receipt text boxes show Saved / error right next to Save.",
-  "builtAt": "2026-10-14T23:49:47.720Z"
+  "version": "0.6.6",
+  "file": "lakecity-pos-0.6.6.zip",
+  "sha256": "a356c8a1248d4bdee995bb6e7b997bc0d11661c781aec9c312e53e602a20dd50",
+  "notes": "ID scan: clearer APPROVED / UNDER AGE results; search box cleared after an ID scan; bypass button named.",
+  "builtAt": "2026-10-15T00:01:26.635Z"
 }
