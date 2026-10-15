@@ -1,7 +1,7 @@
 {
-  "version": "0.7.0",
-  "file": "lakecity-pos-0.7.0.zip",
-  "sha256": "874f470626bbfcbfe2aca3603a090eb8d2a541f158aa48502fd76dc1385bc7ef",
-  "notes": "Customer screen: live ticket, total and change due on the second monitor. Manage → Printer → Customer screen.",
-  "builtAt": "2026-10-15T00:10:02.402Z"
+  "version": "0.7.1",
+  "file": "lakecity-pos-0.7.1.zip",
+  "sha256": "d97f35c0e581932a1c00aea8b7c9ea934148240f2b08e24a38e2a29e6f762fb4",
+  "notes": "Faster updates: checks every 10 minutes, Updates tab with Check now / Install now, and a tap-to-install button on the register when a ticket is open.",
+  "builtAt": "2026-10-15T00:17:31.575Z"
 }
