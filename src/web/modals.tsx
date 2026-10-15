@@ -174,8 +174,8 @@ export function IdModal({ required, info, scanIdOnly, onClose, onManual, onManag
     return (
       <Modal title="ID check" onClose={onClose}>
         <div className="result good">
-          <div className="head"><Icon name="ok" size={52} /><div className="big">OK · {required}+</div>
-            <div className="age">{info.method === 'manager_override' ? 'Approved by a manager' : `Customer is ${info.ageYears}`}</div></div>
+          <div className="head"><Icon name="ok" size={52} /><div className="big">APPROVED · {required}+</div>
+            <div className="age">{info.method === 'manager_override' ? 'Approved by a manager' : `Customer is ${info.ageYears} — legal for ${required}+ in SC`}</div></div>
         </div>
         <div className="hint">Nothing from the ID is saved. Only the result, time, and cashier are logged. This tool checks age only. The cashier must still look at the ID.</div>
         <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} onClick={onClose}>Continue</button>
@@ -212,7 +212,7 @@ export function IdModal({ required, info, scanIdOnly, onClose, onManual, onManag
       </div>
       <div className="hint">Needed: {required}+ for items on this ticket. One scan covers the whole ticket.</div>
       <button className="btn btn-block" onClick={onManual}>Type birth date{scanIdOnly ? ' (manager PIN)' : ''}</button>
-      <button className="btn btn-block" onClick={onManager}>Manager approves (PIN)</button>
+      <button className="btn btn-block" onClick={onManager}>Bypass — manager or owner PIN</button>
       <div className="hint">This tool checks age only. The cashier must still look at the ID.</div>
       <button className="btn btn-quiet btn-block" onClick={onClose}>Cancel</button>
     </Modal>

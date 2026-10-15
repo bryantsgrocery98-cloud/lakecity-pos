@@ -178,11 +178,15 @@ export function App() {
     if (!boot || !user) return;
     const text = raw.replace(/\s+$/, '');
     if (looksLikeAamva(text)) {
+      setSearch('');
       const r = parseAamvaForAge(text);
       if (!r.ok) { showToast(r.reason, true); return; }
       setAgeInfo({ method: 'scan', ageYears: r.ageYears, expired: r.expired });
       if (required !== null || modal?.t === 'id') setModal({ t: 'id' });
-      else showToast(`ID checked: customer is ${r.ageYears}.`);
+      else if (r.expired) showToast(`ID is expired. Customer is ${r.ageYears}.`, true);
+      else if (r.ageYears >= 21) showToast(`APPROVED — customer is ${r.ageYears} (21+). Covers this ticket.`);
+      else if (r.ageYears >= 18) showToast(`Customer is ${r.ageYears}: OK for 18+ tobacco, NOT for alcohol.`, true);
+      else showToast(`UNDER AGE — customer is ${r.ageYears}.`, true);
       return;
     }
     const code = text.trim();
@@ -435,7 +439,7 @@ export function App() {
             <div className={`age-banner ${ageStatus === 'passed' ? 'ok' : ageStatus === 'under' ? 'bad' : ''}`} data-testid="age-banner">
               <Icon name={ageStatus === 'under' ? 'ban' : ageStatus === 'passed' ? 'ok' : 'id'} size={32} />
               <div className="t">
-                <b>{ageStatus === 'needed' ? 'ID REQUIRED' : ageStatus === 'passed' ? `OK · ${required}+` : ageStatus === 'under' ? 'UNDER AGE · DO NOT SELL' : 'ID EXPIRED'}</b>
+                <b>{ageStatus === 'needed' ? 'ID REQUIRED' : ageStatus === 'passed' ? `APPROVED · ${required}+` : ageStatus === 'under' ? 'UNDER AGE · DO NOT SELL' : 'ID EXPIRED'}</b>
                 <span>{ageStatus === 'needed' ? 'Scan the back of the ID to continue' : ageStatus === 'passed'
                   ? (ageInfo?.method === 'manager_override' ? 'Approved by a manager' : `Customer is ${ageInfo?.ageYears}`)
                   : ageStatus === 'under' ? `Customer is ${ageInfo?.ageYears}. Needs ${required}+` : 'Manager must approve'}</span>
