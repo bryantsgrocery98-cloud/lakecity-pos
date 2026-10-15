@@ -125,6 +125,9 @@ export function App() {
     return 'passed';
   })();
   const canPay = lines.length > 0 && (ageStatus === 'none' || ageStatus === 'passed');
+  // Checks being cashed on this ticket: the customer pays with them and gets the rest back in cash.
+  const checkCents = lines.filter((l) => l.kind === 'service' && l.service === 'check_fee').reduce((s, l) => s + (l.baseCents ?? 0), 0);
+  const checkCashBack = checkCents - totals.totalCents;
 
   // Customer screen: mirror the ticket as it changes, and the result after a sale.
   useEffect(() => {
@@ -538,6 +541,15 @@ export function App() {
             </div>
           )}
 
+          {checkCents > 0 && (
+            <div className="pay" style={{ paddingBottom: 0 }}>
+              <button className="btn btn-dark" style={{ flex: 1, minHeight: 64, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', textAlign: 'left', padding: '0 16px' }} disabled={!canPay || checkCashBack < 0}
+                onClick={() => { if (!canPay) return; setPayError(''); completeSale({ tender: 'check', tenderedCents: checkCents }); }}>
+                <span style={{ fontSize: 20 }}>CHECK {formatCents(checkCents)}</span>
+                <span style={{ fontWeight: 500, fontSize: 15, textAlign: 'right', lineHeight: 1.1 }}>{checkCashBack >= 0 ? <>cash to customer<br /><b style={{ fontSize: 18 }}>{formatCents(checkCashBack)}</b></> : 'check does not cover the ticket'}</span>
+              </button>
+            </div>
+          )}
           <div className="pay">
             <button className="btn btn-primary" disabled={!canPay} onClick={() => startPay('cash')}>CASH</button>
             <button className="btn btn-primary" disabled={!canPay} onClick={() => startPay('card')}>CARD</button>
@@ -644,10 +656,11 @@ export function App() {
         setModal(null);
       }} />}
       {modal?.t === 'check' && <CheckModal feeBp={boot.settings.checkFeeBp} ticketTotal={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)}
-        onDone={(checkCents) => {
-          const fee: TicketLine = { key: 'CHK', kind: 'service', service: 'check_fee', name: checkFeeLabel(checkCents, boot.settings.checkFeeBp), qty: 1,
-            unitCents: checkFeeCents(checkCents, boot.settings.checkFeeBp), baseCents: checkCents, authorityId: null, category: 'Check Cashing', ageMin: null };
-          completeSale({ tender: 'check', tenderedCents: checkCents }, [fee]);
+        onDone={(cents) => {
+          pushLine({ kind: 'service', service: 'check_fee', name: checkFeeLabel(cents, boot.settings.checkFeeBp), qty: 1,
+            unitCents: checkFeeCents(cents, boot.settings.checkFeeBp), baseCents: cents, authorityId: null, category: 'Check Cashing', ageMin: null });
+          setModal(null);
+          showToast(`Check for ${formatCents(cents)} on the ticket. Press CHECK when done to pay out the cash.`);
         }} />}
       {modal?.t === 'ask' && <AskModal title={modal.button.name} onClose={() => setModal(null)} onAdd={(cents) => {
         const b = modal.button;

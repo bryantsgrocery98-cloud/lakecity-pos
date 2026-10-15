@@ -472,9 +472,10 @@ export function CheckModal({ feeBp, ticketTotal, busy, error, onClose, onDone }:
         {ticketTotal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Items on this ticket</span><span className="num">{formatCents(ticketTotal)}</span></div>}
         <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 24 }}><span>Cash to customer</span><span className="num">{formatCents(Math.max(0, cashOut))}</span></div>
       </div>
-      {check > 0 && cashOut < 0 && <div className="err">The check does not cover the fee and the items on the ticket.</div>}
+      {check > 0 && cashOut < 0 && <div className="err">The check does not cover the fee and the items already on the ticket.</div>}
       {error && <div className="err">{error}</div>}
-      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={!ok} onClick={() => onDone(check)}>Done — pay out {formatCents(Math.max(0, cashOut))}</button>
+      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={!ok} onClick={() => onDone(check)}>Add to ticket</button>
+      <div className="hint">Ring up anything else the customer is buying, then press <b>CHECK</b> to finish. The cash to hand over is shown there.</div>
     </Modal>
   );
 }
