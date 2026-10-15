@@ -9,6 +9,7 @@ import type { createUpdater } from './updater.js';
 import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
 import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
 import { listPrinters, listSerialPorts, pulseSerialDrawer, sendToPrinter } from './printer.js';
+import { createDisplay, listScreens, openCustomerWindow, type DisplayState } from './display.js';
 import { buildDayReport } from './reports.js';
 import type {
   AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
@@ -41,7 +42,7 @@ function isManagerPin(db: DB, pin: string | undefined): boolean {
   return !!u && (u.role === 'manager' || u.role === 'owner');
 }
 
-export type AppExtras = { updater?: ReturnType<typeof createUpdater>; version?: string; imagesDir?: string };
+export type AppExtras = { updater?: ReturnType<typeof createUpdater>; version?: string; imagesDir?: string; root?: string; display?: ReturnType<typeof createDisplay> };
 
 export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   const app = express();
@@ -593,6 +594,37 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
 
   // ---------- version and activity (the screen reloads itself after an update; the updater waits while a ticket is open) ----------
   app.get('/api/version', (_req, res) => { res.json({ version: extras.version ?? '0' }); });
+
+  // ---------- customer display ----------
+  const display = extras.display ?? createDisplay();
+  app.get('/api/display', (_req, res) => { res.json(display.get()); });
+  app.get('/api/display/events', (_req, res) => { display.subscribe(res); });
+  app.post('/api/display', wrap((req, res) => {
+    const b = (req.body ?? {}) as Partial<DisplayState>;
+    const lines = Array.isArray(b.lines) ? b.lines.slice(0, 200).map((l) => ({ name: String(l.name ?? '').slice(0, 60), qty: Number(l.qty) || 1, cents: Number(l.cents) || 0 })) : [];
+    display.set({ mode: b.mode === 'ticket' || b.mode === 'paid' ? b.mode : 'idle', lines,
+      subtotalCents: Number(b.subtotalCents) || 0, taxCents: Number(b.taxCents) || 0, discountCents: Number(b.discountCents) || 0, totalCents: Number(b.totalCents) || 0,
+      tender: b.tender === 'cash' || b.tender === 'card' ? b.tender : undefined, tenderedCents: Number(b.tenderedCents) || undefined, changeCents: Number(b.changeCents) || 0 });
+    res.json({ ok: true, viewers: display.clientCount() });
+  }));
+  app.get('/api/display/settings', wrap(async (_req, res) => {
+    res.json({ enabled: getSetting(db, 'customer_display', 'true') === 'true', welcome: getSetting(db, 'display_welcome', 'Welcome!'),
+      screens: await listScreens(), viewers: display.clientCount(), storeName: getSetting(db, 'store_name', '') });
+  }));
+  app.post('/api/display/settings', wrap((req, res) => {
+    const { pin, cashier, enabled, welcome } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const set = db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`);
+    if (enabled !== undefined) set.run('customer_display', enabled ? 'true' : 'false');
+    if (welcome !== undefined) set.run('display_welcome', String(welcome).slice(0, 80));
+    audit(db, String(cashier ?? ''), 'settings', 'customer display');
+    res.json({ ok: true });
+  }));
+  app.post('/api/display/open', wrap(async (req, res) => {
+    const url = `http://localhost:${req.socket.localPort}/customer`;
+    res.json({ message: await openCustomerWindow(extras.root ?? process.cwd(), url) });
+  }));
+  app.get('/api/display/welcome', (_req, res) => { res.json({ welcome: getSetting(db, 'display_welcome', 'Welcome!'), storeName: getSetting(db, 'store_name', '') }); });
   app.post('/api/activity', wrap((req, res) => {
     const open = !!req.body?.ticketOpen;
     extras.updater?.setBusy(open);

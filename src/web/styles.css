@@ -234,3 +234,23 @@ table.rep td:last-child { text-align: right; }
 .chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
 .chip-static { background: #eef1f4; }
 .chip-x { border: none; background: transparent; font-size: 20px; line-height: 1; padding: 0 2px; min-width: 32px; min-height: 32px; }
+
+/* ---------- customer display (second screen) ---------- */
+.cust { height: 100vh; display: flex; flex-direction: column; background: #0f1b24; color: #fff; font-size: 30px; overflow: hidden; }
+.cust-top { display: flex; align-items: center; justify-content: space-between; padding: 22px 40px; background: #14222e; }
+.cust-brand { font-size: 38px; font-weight: 800; letter-spacing: 0.5px; }
+.cust-dot { width: 14px; height: 14px; border-radius: 50%; background: #e0a400; }
+.cust-idle, .cust-paid { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 40px; text-align: center; }
+.cust-welcome { font-size: 84px; font-weight: 800; }
+.cust-sub { font-size: 30px; color: #b9c6d1; }
+.cust-lines { flex: 1; overflow: auto; padding: 16px 40px; }
+.cust-line { display: grid; grid-template-columns: 80px 1fr auto; gap: 16px; padding: 14px 0; border-bottom: 1px solid #243543; font-size: 32px; }
+.cust-qty { color: #b9c6d1; }
+.cust-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cust-amt { font-variant-numeric: tabular-nums; font-weight: 600; }
+.cust-totals { padding: 20px 40px 36px; background: #14222e; display: flex; flex-direction: column; gap: 8px; font-size: 30px; }
+.cust-totals > div { display: flex; justify-content: space-between; color: #b9c6d1; }
+.cust-totals .cust-total { color: #fff; font-size: 64px; font-weight: 800; margin-top: 8px; }
+.cust-thanks { font-size: 72px; font-weight: 800; color: #6fe3b4; }
+.cust-paidrow { display: flex; justify-content: space-between; width: min(720px, 90vw); font-size: 38px; color: #b9c6d1; }
+.cust-change { color: #fff; font-size: 72px; font-weight: 800; border-top: 2px solid #243543; padding-top: 16px; }

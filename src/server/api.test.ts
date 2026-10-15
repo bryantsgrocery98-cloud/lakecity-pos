@@ -235,3 +235,22 @@ describe('voids, refunds and the Z report', () => {
     expect(after.status).toBe(409);
   });
 });
+
+describe('customer display', () => {
+  it('starts idle, mirrors a ticket, and reports the sale result', async () => {
+    const get = async () => (await fetch(base + '/api/display')).json() as Promise<Record<string, unknown>>;
+    expect((await get()).mode).toBe('idle');
+    const r1 = await post('/api/display', { mode: 'ticket', lines: [{ name: 'Coke 20oz', qty: 2, cents: 398 }], subtotalCents: 398, taxCents: 4, totalCents: 402 });
+    expect(r1.status).toBe(200);
+    const s1 = await get();
+    expect(s1.mode).toBe('ticket');
+    expect((s1.lines as { name: string }[])[0]!.name).toBe('Coke 20oz');
+    expect(s1.totalCents).toBe(402);
+    await post('/api/display', { mode: 'paid', totalCents: 402, tender: 'cash', tenderedCents: 500, changeCents: 98 });
+    expect((await get()).changeCents).toBe(98);
+    await post('/api/display', { mode: 'idle' });
+    expect((await get()).mode).toBe('idle');
+    const w = (await (await fetch(base + '/api/display/welcome')).json()) as { welcome: string };
+    expect(typeof w.welcome).toBe('string');
+  });
+});

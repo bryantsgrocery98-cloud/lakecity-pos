@@ -121,6 +121,23 @@ export function App() {
   })();
   const canPay = lines.length > 0 && (ageStatus === 'none' || ageStatus === 'passed');
 
+  // Customer screen: mirror the ticket as it changes, and the result after a sale.
+  useEffect(() => {
+    if (!boot) return;
+    const receipt = modal?.t === 'receipt' ? modal.receipt : null;
+    const body = receipt
+      ? { mode: 'paid', lines: [], subtotalCents: receipt.totals.subtotalCents, taxCents: receipt.totals.taxCents, discountCents: receipt.totals.discountCents,
+          totalCents: receipt.totals.totalCents, tender: receipt.payment.tender, tenderedCents: receipt.payment.tenderedCents ?? undefined, changeCents: receipt.payment.changeCents ?? 0 }
+      : lines.length === 0
+        ? { mode: 'idle' }
+        : { mode: 'ticket', lines: lines.map((l) => ({ name: l.name, qty: l.qty, cents: lineAmt.get(l.key)?.grossCents ?? l.unitCents * l.qty })),
+            subtotalCents: totals.subtotalCents, taxCents: totals.taxCents, discountCents: totals.discountCents, totalCents: totals.totalCents };
+    const t = window.setTimeout(() => { api('/api/display', body).catch(() => {}); }, 80);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boot, lines, totals, modal?.t === 'receipt' ? modal.receipt : null]);
+
+
   const tapOk = (id: string) => {
     // A scanner's Enter key would "click" whichever button still has focus, so move focus to the search box after every tap.
     (document.activeElement as HTMLElement | null)?.blur?.();

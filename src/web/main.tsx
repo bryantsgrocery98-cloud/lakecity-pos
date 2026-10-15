@@ -1,5 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { CustomerDisplay } from './customer';
 import './styles.css';
 
-createRoot(document.getElementById('root')!).render(<App />);
+const customer = window.location.pathname.replace(/\/+$/, '') === '/customer';
+createRoot(document.getElementById('root')!).render(customer ? <CustomerDisplay /> : <App />);

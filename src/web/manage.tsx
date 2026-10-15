@@ -306,6 +306,7 @@ function PrinterTab({ pin }: { pin: string }) {
         <button className={`chip ${cfg.drawerKick ? 'on' : ''}`} onClick={() => toggle({ drawerKick: !cfg.drawerKick })}>Open register on cash sales: {cfg.drawerKick ? 'ON' : 'OFF'}</button>
       </div>
       <div className="hint">With automatic receipts off, the cashier can still print one from the Sale Complete screen or reprint it later from the Sales tab.</div>
+      <CustomerScreenSettings pin={pin} />
       <div className="editor-label">RECEIPT TEXT</div>
       <TextSetting label="Store name (big, top line)" value={cfg.storeName} onSave={(v) => save({ storeName: v })} />
       <TextSetting label="Header lines (address, phone…)" value={cfg.header} multiline onSave={(v) => save({ header: v })} />
@@ -343,5 +344,38 @@ function TextSetting({ label, value, multiline, onSave }: { label: string; value
         </span>
       </div>
     </div>
+  );
+}
+
+type DisplayCfg = { enabled: boolean; welcome: string; screens: { width: number; height: number; primary: boolean }[]; viewers: number };
+
+function CustomerScreenSettings({ pin }: { pin: string }) {
+  const [cfg, setCfg] = useState<DisplayCfg | null>(null);
+  const [msg, setMsg] = useState('');
+  const load = () => api<DisplayCfg>('/api/display/settings').then(setCfg).catch((e: Error) => setMsg(e.message));
+  useEffect(() => { load(); }, []);
+  if (!cfg) return null;
+  const save = async (patch: Partial<DisplayCfg>) => {
+    try { await api('/api/display/settings', { pin, ...patch }); setCfg({ ...cfg, ...patch }); setMsg('Saved.'); } catch (e) { setMsg((e as Error).message); throw e; }
+  };
+  const open = async () => {
+    try { const r = await api<{ message: string }>('/api/display/open', {}); setMsg(r.message); setTimeout(load, 3000); } catch (e) { setMsg((e as Error).message); }
+  };
+  const second = cfg.screens.filter((sc) => !sc.primary);
+  return (
+    <>
+      <div className="editor-label">CUSTOMER SCREEN</div>
+      {msg && <div className="inv-msg" style={{ margin: 0 }}>{msg}</div>}
+      <div className="chips">
+        <button className={`chip ${cfg.enabled ? 'on' : ''}`} onClick={() => save({ enabled: !cfg.enabled }).catch(() => {})}>Customer screen: {cfg.enabled ? 'ON' : 'OFF'}</button>
+        <button className="chip" onClick={open}>Open customer screen now</button>
+      </div>
+      <div className="hint">
+        {second.length > 0 ? `Second monitor found (${second[0]!.width}x${second[0]!.height}). ` : 'No second monitor found right now. '}
+        {cfg.viewers > 0 ? `The customer screen is showing (${cfg.viewers} window).` : 'The customer screen is not open.'}
+        {' '}When ON it opens by itself on the second monitor each time the register starts.
+      </div>
+      <TextSetting label="Welcome message (shown between customers)" value={cfg.welcome} onSave={(v) => save({ welcome: v })} />
+    </>
   );
 }

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { getSetting, openDb } from './db.js';
 import { seedIfEmpty } from './seed.js';
+import { createDisplay, openCustomerWindow } from './display.js';
 import { createUpdater } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -20,10 +21,15 @@ if (seedIfEmpty(db)) console.log('Loaded demo products. Demo PINs: cashier 1111,
 const updateSource = process.env.POS_UPDATE_SOURCE ?? getSetting(db, 'update_source', pkg.posUpdateSource ?? '');
 const updater = createUpdater({ root, currentVersion: version, source: updateSource, log: (m) => console.log(`[update] ${m}`) });
 
-const app = createApp(db, path.join(root, 'dist', 'web'), { updater, version, imagesDir: path.join(path.dirname(dbFile), 'images') });
+const display = createDisplay();
+const app = createApp(db, path.join(root, 'dist', 'web'), { updater, version, imagesDir: path.join(path.dirname(dbFile), 'images'), root, display });
 // Listen on this computer only. Nothing else on the network can reach the register.
 app.listen(port, '127.0.0.1', () => {
   console.log(`POS ${version} running at http://localhost:${port}`);
   if (updateSource && process.env.POS_NO_UPDATE !== '1') updater.start();
   else console.log('[update] no update source set; auto-update is off.');
+  // Customer screen: opens by itself on the second monitor when one is plugged in.
+  if (process.platform === 'win32' && !process.env.POS_NO_BROWSER && getSetting(db, 'customer_display', 'true') === 'true') {
+    setTimeout(() => { openCustomerWindow(root, `http://localhost:${port}/customer`).then((m) => console.log(`[display] ${m}`)); }, 4000);
+  }
 });
