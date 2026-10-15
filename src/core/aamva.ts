@@ -65,3 +65,39 @@ export function parseAamvaForAge(text: string, today = todayIso()): IdAgeResult 
   const expires = exp ? parseAamvaDate(exp[1]!) : null;
   return evaluateBirthDate(birth, expires, today);
 }
+
+// ---------- scanners with "driver license parsing" turned on ----------
+// Some scanners (as set up for NRS registers) do not send the raw barcode. They send one line such as
+//   ID:MM/DD/YYYY|MM/DD/YYYY|FIRST|MIDDLE|LAST|number|ST|height|eyes...
+// where the first date is the birth date and the second the expiry. Only the two dates are read.
+
+export function looksLikeParsedId(text: string): boolean {
+  return /^\s*ID:\s*\d{1,2}\/\d{1,2}\/\d{4}/.test(text);
+}
+
+function usDateToIso(s: string): string | null {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s.trim());
+  if (!m) return null;
+  const mm = +m[1]!, dd = +m[2]!, yy = +m[3]!;
+  return validDate(yy, mm, dd) ? iso(yy, mm, dd) : null;
+}
+
+export function parseParsedIdForAge(text: string, today = todayIso()): IdAgeResult {
+  const dates = (text.match(/\d{1,2}\/\d{1,2}\/\d{4}/g) ?? []).map(usDateToIso).filter((d): d is string => !!d);
+  if (dates.length === 0) return { ok: false, reason: 'The birth date was not found in the ID scan.' };
+  // Birth date is the first date; expiry the second. If they arrived the other way round (expiry in the future), swap.
+  let birth = dates[0]!;
+  let expires = dates[1] ?? null;
+  if (expires && birth > today && expires <= today) [birth, expires] = [expires, birth];
+  return evaluateBirthDate(birth, expires, today);
+}
+
+/** True for anything that is an ID scan, raw barcode or scanner-parsed line. */
+export function looksLikeId(text: string): boolean {
+  return looksLikeAamva(text) || looksLikeParsedId(text);
+}
+
+/** Age check for either kind of ID scan. */
+export function parseIdForAge(text: string, today = todayIso()): IdAgeResult {
+  return looksLikeParsedId(text) ? parseParsedIdForAge(text, today) : parseAamvaForAge(text, today);
+}

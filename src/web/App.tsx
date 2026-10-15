@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatCents } from '../core/money';
-import { looksLikeAamva, parseAamvaForAge } from '../core/aamva';
+import { looksLikeId, parseIdForAge } from '../core/aamva';
 import { computeTotals, type TicketLine } from '../core/ticket';
 import type { Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleLineInput } from '../core/types';
 import { ApiError, api } from './api';
@@ -198,9 +198,9 @@ export function App() {
   const handleScan = async (raw: string) => {
     if (!boot || !user) return;
     const text = raw.replace(/\s+$/, '');
-    if (looksLikeAamva(text)) {
+    if (looksLikeId(text)) {
       setSearch('');
-      const r = parseAamvaForAge(text);
+      const r = parseIdForAge(text);
       if (!r.ok) { showToast(r.reason, true); return; }
       setAgeInfo({ method: 'scan', ageYears: r.ageYears, expired: r.expired });
       if (required !== null || modal?.t === 'id') setModal({ t: 'id' });
@@ -256,10 +256,10 @@ export function App() {
       last = now;
       // The barcode on the back of a license starts with "@" and soon says "ANSI". Once we see that, swallow every key
       // until the scanner pauses, whatever the typing speed.
-      if (!idMode && (buf === '@' || buf.endsWith('ANSI'))) idMode = true;
+      if (!idMode && (buf === '@' || buf === 'ID:' || buf.endsWith('ANSI'))) idMode = true;
       if (idMode) {
         e.preventDefault(); e.stopPropagation();
-        if (buf.startsWith('@') === false && !buf.includes('ANSI')) idMode = false;
+        if (!buf.startsWith('@') && !buf.startsWith('ID:') && !buf.includes('ANSI')) idMode = false;
         window.clearTimeout(timer);
         timer = window.setTimeout(flush, 500);
         return;

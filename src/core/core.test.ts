@@ -157,3 +157,18 @@ describe('aamva tolerance', () => {
     expect(r.ok && r.ageYears).toBe(36);
   });
 });
+
+describe('scanner-parsed ID line', () => {
+  it('reads birth and expiry from an ID: line and ignores everything else', async () => {
+    const { looksLikeId, parseIdForAge } = await import('./aamva.js');
+    const line = 'ID:07/14/1995|12/06/2032|FIRST|MIDDLE|LAST|000000000|SC|6\'-0"|BRO';
+    expect(looksLikeId(line)).toBe(true);
+    const r = parseIdForAge(line, '2026-10-14');
+    expect(r.ok && r.ageYears).toBe(31);
+    expect(r.ok && r.expired).toBe(false);
+    const under = parseIdForAge('ID:01/01/2008|01/01/2030|A|B|C', '2026-10-14');
+    expect(under.ok && under.ageYears).toBe(18);
+    const exp = parseIdForAge('ID:01/01/1980|01/01/2020|A|B|C', '2026-10-14');
+    expect(exp.ok && exp.expired).toBe(true);
+  });
+});
