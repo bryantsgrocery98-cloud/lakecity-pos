@@ -1,7 +1,7 @@
 {
-  "version": "0.8.0",
-  "file": "lakecity-pos-0.8.0.zip",
-  "sha256": "587c8947b710aacb4240b8a8ddd4076c42c9b66f03c74ad0be55245137871b02",
-  "notes": "Keyboard works on PIN, cash, quantity and name screens (Enter confirms). Unknown barcodes are looked up in the open product database and added with one price tap.",
-  "builtAt": "2026-10-15T00:59:57.697Z"
+  "version": "0.8.1",
+  "file": "lakecity-pos-0.8.1.zip",
+  "sha256": "652a22d2c84e3f5166bdfe2e8585595fb2198781986223a0ac8a4c70dd248d18",
+  "notes": "Inventory → Find pictures online: fills in photos for items that have a barcode but no picture.",
+  "builtAt": "2026-10-15T01:19:37.489Z"
 }
