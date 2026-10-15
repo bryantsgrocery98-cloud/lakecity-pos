@@ -1,7 +1,7 @@
 {
-  "version": "0.8.1",
-  "file": "lakecity-pos-0.8.1.zip",
-  "sha256": "652a22d2c84e3f5166bdfe2e8585595fb2198781986223a0ac8a4c70dd248d18",
-  "notes": "Inventory → Find pictures online: fills in photos for items that have a barcode but no picture.",
-  "builtAt": "2026-10-15T01:19:37.489Z"
+  "version": "0.8.2",
+  "file": "lakecity-pos-0.8.2.zip",
+  "sha256": "b1dfe0a904d7aee86c6dbacd8dcf35e761bc36965cffbfa732af10bd232e7b19",
+  "notes": "Find pictures: list refreshes itself when the search finishes.",
+  "builtAt": "2026-10-15T01:28:53.561Z"
 }
