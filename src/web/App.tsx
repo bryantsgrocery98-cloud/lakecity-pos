@@ -232,11 +232,14 @@ export function App() {
     let buf = '';
     let last = 0;
     let maxGap = 0;
+    let idMode = false; // an ID barcode is coming in: it is long, may arrive slowly, and must not reach the search box
     let timer: number | undefined;
     const flush = () => {
       const text = buf;
       const fast = maxGap < 80;
-      buf = ''; maxGap = 0;
+      const wasId = idMode;
+      buf = ''; maxGap = 0; idMode = false;
+      if (wasId) { scanRef.current(text); return; }
       if (text.trim().length >= 4 && fast) scanRef.current(text);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -244,16 +247,27 @@ export function App() {
       let ch = '';
       if (e.key.length === 1) ch = e.key;
       else if (e.key === 'Enter') ch = '\n';
+      else if (e.key === 'Tab' && idMode) ch = '\t';
       else return;
       const now = performance.now();
+      if (!idMode && buf && now - last > 200) { buf = ''; maxGap = 0; }
+      if (buf) maxGap = Math.max(maxGap, now - last);
+      buf += ch;
+      last = now;
+      // The barcode on the back of a license starts with "@" and soon says "ANSI". Once we see that, swallow every key
+      // until the scanner pauses, whatever the typing speed.
+      if (!idMode && (buf === '@' || buf.endsWith('ANSI'))) idMode = true;
+      if (idMode) {
+        e.preventDefault(); e.stopPropagation();
+        if (buf.startsWith('@') === false && !buf.includes('ANSI')) idMode = false;
+        window.clearTimeout(timer);
+        timer = window.setTimeout(flush, 500);
+        return;
+      }
       // Typing with nothing focused (or a button focused) goes into the search box.
       const ae = document.activeElement as HTMLElement | null;
       const typingTarget = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
       if (!typingTarget && ch !== '\n' && !modalRef.current) searchRef.current?.focus();
-      if (buf && now - last > 200) { buf = ''; maxGap = 0; }
-      if (buf) maxGap = Math.max(maxGap, now - last);
-      buf += ch;
-      last = now;
       window.clearTimeout(timer);
       timer = window.setTimeout(flush, 120);
     };

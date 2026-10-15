@@ -9,7 +9,9 @@ export type IdAgeResult =
 
 /** True when scanner text looks like an AAMVA barcode (starts with "@" and contains "ANSI"). */
 export function looksLikeAamva(text: string): boolean {
-  return text.trimStart().startsWith('@') && text.includes('ANSI');
+  const t = text.trimStart();
+  // Some scanners drop the leading "@"; the ANSI header plus a birth-date field is proof enough.
+  return (t.startsWith('@') && t.includes('ANSI')) || (t.includes('ANSI') && /DBB\d{8}/.test(t));
 }
 
 function validDate(y: number, m: number, d: number): boolean {

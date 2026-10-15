@@ -147,3 +147,13 @@ describe('AAMVA age check', () => {
     expect(JSON.stringify(r)).not.toMatch(/DOE|JOHN|D1234567/);
   });
 });
+
+describe('aamva tolerance', () => {
+  it('reads a scan whose leading @ was dropped by the scanner', async () => {
+    const { parseAamvaForAge, looksLikeAamva } = await import('./aamva.js');
+    const text = 'ANSI 636005090002DL00410278ZS03190024DLDAQ123\nDCSDOE\nDBB03041990\nDBA03042031\nDAJSC\n';
+    expect(looksLikeAamva(text)).toBe(true);
+    const r = parseAamvaForAge(text, '2026-10-14');
+    expect(r.ok && r.ageYears).toBe(36);
+  });
+});

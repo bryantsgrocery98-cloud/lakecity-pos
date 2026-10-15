@@ -1,6 +1,6 @@
 {
   "name": "lakecity-pos",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Free touch-first POS for a small convenience store",
   "main": "index.js",
   "scripts": {
