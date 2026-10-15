@@ -1,7 +1,7 @@
 {
-  "version": "0.7.5",
-  "file": "lakecity-pos-0.7.5.zip",
-  "sha256": "2688883aee5881230fa50df510a0b9524ce6cec29fe56323c2e575ab65d4d1f5",
-  "notes": "ID line: birth date found regardless of field order.",
-  "builtAt": "2026-10-15T00:39:16.748Z"
+  "version": "0.8.0",
+  "file": "lakecity-pos-0.8.0.zip",
+  "sha256": "587c8947b710aacb4240b8a8ddd4076c42c9b66f03c74ad0be55245137871b02",
+  "notes": "Keyboard works on PIN, cash, quantity and name screens (Enter confirms). Unknown barcodes are looked up in the open product database and added with one price tap.",
+  "builtAt": "2026-10-15T00:59:57.697Z"
 }
