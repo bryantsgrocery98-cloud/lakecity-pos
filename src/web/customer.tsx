@@ -5,7 +5,7 @@ import { formatCents } from '../core/money';
 type Line = { name: string; qty: number; cents: number };
 type State = {
   mode: 'idle' | 'ticket' | 'paid'; lines: Line[]; subtotalCents: number; taxCents: number; discountCents: number; totalCents: number;
-  tender?: 'cash' | 'card'; tenderedCents?: number; changeCents?: number; at: number;
+  tender?: 'cash' | 'card' | 'check'; tenderedCents?: number; changeCents?: number; at: number;
 };
 
 export function CustomerDisplay() {
@@ -86,6 +86,12 @@ export function CustomerDisplay() {
             </>
           )}
           {state.tender === 'card' && <div className="cust-paidrow"><span>Paid by card</span><span>{formatCents(state.totalCents)}</span></div>}
+          {state.tender === 'check' && (
+            <>
+              <div className="cust-paidrow"><span>Check</span><span>{formatCents(state.tenderedCents ?? state.totalCents)}</span></div>
+              <div className="cust-paidrow cust-change"><span>Cash to you</span><span>{formatCents(state.changeCents ?? 0)}</span></div>
+            </>
+          )}
           <div className="cust-sub">Please come again</div>
         </div>
       )}

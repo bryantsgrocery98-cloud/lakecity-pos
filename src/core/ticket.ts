@@ -1,7 +1,8 @@
 import { percentOfCents } from './money.js';
 import { Authority, authorityAmountCents } from './tax.js';
 
-export type LineKind = 'item' | 'button' | 'ask' | 'lottery';
+export type LineKind = 'item' | 'button' | 'ask' | 'lottery' | 'service';
+export type ServiceId = 'gas' | 'check_fee';
 
 export type TicketLine = {
   /** Unique id inside the ticket (not a database id). */
@@ -17,7 +18,21 @@ export type TicketLine = {
   feeMultiplier?: number;
   itemId?: number | null;
   buttonId?: number | null;
+  /** Built-in services (gas, check cashing). */
+  service?: ServiceId;
+  /** For a check-cashing fee: the amount of the check the fee was figured from. */
+  baseCents?: number;
 };
+
+/** Check-cashing fee for a check amount, in cents, at a rate in basis points (100 = 1%). Half-up rounding. */
+export function checkFeeCents(checkCents: number, rateBp: number): number {
+  return Math.floor((checkCents * rateBp + 5000) / 10000);
+}
+
+export function checkFeeLabel(checkCents: number, rateBp: number): string {
+  const pct = rateBp % 100 === 0 ? String(rateBp / 100) : (rateBp / 100).toFixed(2);
+  return `Check cashing ${pct}% (check $${(checkCents / 100).toFixed(2)})`;
+}
 
 export type TaxLine = { authorityId: number; title: string; cents: number };
 
@@ -51,7 +66,7 @@ export function computeTotals(
 
   for (const l of lines) {
     const gross = l.unitCents * l.qty;
-    const d = l.kind === 'lottery' || discountPct <= 0 ? 0 : percentOfCents(gross, discountPct * 100);
+    const d = l.kind === 'lottery' || l.kind === 'service' || discountPct <= 0 ? 0 : percentOfCents(gross, discountPct * 100);
     const net = gross - d;
     const authority = l.authorityId === null ? undefined : byId.get(l.authorityId);
     const tax = authorityAmountCents(authority, net, l.qty, l.feeMultiplier ?? 1);

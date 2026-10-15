@@ -30,7 +30,7 @@ export class DB {
   close(): void { this.raw.close(); }
 }
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS sale_lines (
 CREATE TABLE IF NOT EXISTS sale_tax (
   sale_id INTEGER NOT NULL REFERENCES sales(id), authority_id INTEGER NOT NULL, title TEXT NOT NULL, cents INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS payments (
-  id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), tender TEXT NOT NULL CHECK (tender IN ('cash','card')),
+  id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), tender TEXT NOT NULL CHECK (tender IN ('cash','card','check')),
   amount_cents INTEGER NOT NULL, tendered_cents INTEGER, change_cents INTEGER, reference TEXT);
 CREATE TABLE IF NOT EXISTS holds (
   id INTEGER PRIMARY KEY, label TEXT NOT NULL, lines_json TEXT NOT NULL, discount_pct INTEGER NOT NULL DEFAULT 0,
@@ -125,6 +125,16 @@ function migrate(db: DB): void {
           name TEXT NOT NULL, qty INTEGER NOT NULL, cents INTEGER NOT NULL, tax_cents INTEGER NOT NULL, category TEXT NOT NULL, authority_id INTEGER);
         CREATE TABLE IF NOT EXISTS z_reports (
           id INTEGER PRIMARY KEY, workday TEXT NOT NULL, closed_at TEXT NOT NULL, cashier TEXT NOT NULL, report_json TEXT NOT NULL);`);
+    }
+    if (current < 4) {
+      // Checks can now be taken as payment (check cashing). SQLite cannot change a CHECK constraint, so rebuild the table.
+      db.exec(`CREATE TABLE payments_v4 (
+          id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), tender TEXT NOT NULL CHECK (tender IN ('cash','card','check')),
+          amount_cents INTEGER NOT NULL, tendered_cents INTEGER, change_cents INTEGER, reference TEXT);
+        INSERT INTO payments_v4 (id, sale_id, tender, amount_cents, tendered_cents, change_cents, reference)
+          SELECT id, sale_id, tender, amount_cents, tendered_cents, change_cents, reference FROM payments;
+        DROP TABLE payments;
+        ALTER TABLE payments_v4 RENAME TO payments;`);
     }
   }
   db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { formatCents, centsFromKeypadDigits } from '../core/money';
+import { checkFeeCents } from '../core/ticket';
 import { evaluateBirthDate, parseAamvaDate } from '../core/aamva';
 import type { Authority } from '../core/tax';
 import type { HoldDto, ItemDto, Receipt } from '../core/types';
@@ -72,7 +73,7 @@ export function AskModal({ title, onClose, onAdd }: { title: string; onClose: ()
     <Modal title={title} onClose={onClose}>
       <div className="hint">Type the price. Digits fill in from the right, so 4 5 0 makes $4.50.</div>
       <div className="display num">{formatCents(cents)}</div>
-      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero />
+      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={() => { if (cents > 0) onAdd(cents); }} />
       <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={cents <= 0} onClick={() => onAdd(cents)}>Add to ticket</button>
     </Modal>
   );
@@ -124,7 +125,7 @@ export function PayoutModal({ onClose, onSave }: { onClose: () => void; onSave: 
     <Modal title="Lottery payout" onClose={onClose}>
       <div className="hint">Cash paid out to a winner. This is counted against the drawer at the end of the shift.</div>
       <div className="display num">{formatCents(cents)}</div>
-      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero />
+      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={() => { if (cents > 0) onSave(cents); }} />
       <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={cents <= 0} onClick={() => onSave(cents)}>Record payout</button>
     </Modal>
   );
@@ -378,8 +379,8 @@ export function ReceiptModal({ receipt, onDone }: { receipt: Receipt; onDone: ()
   const when = new Date(receipt.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York' });
   return (
     <Modal title="Sale complete">
-      {receipt.payment.tender === 'cash' && receipt.payment.changeCents !== null && (
-        <div className="change"><span>Change due</span><span className="num">{formatCents(receipt.payment.changeCents)}</span></div>
+      {(receipt.payment.tender === 'cash' || receipt.payment.tender === 'check') && receipt.payment.changeCents !== null && (
+        <div className="change"><span>{receipt.payment.tender === 'check' ? 'Cash to customer' : 'Change due'}</span><span className="num">{formatCents(receipt.payment.changeCents)}</span></div>
       )}
       <div className="receipt" id="receipt">
         <div className="c"><b>{receipt.store.name}</b><br />{receipt.store.address}{receipt.store.phone ? <><br />{receipt.store.phone}</> : null}</div>
@@ -404,7 +405,12 @@ export function ReceiptModal({ receipt, onDone }: { receipt: Receipt; onDone: ()
             <div className="r"><span>Cash</span><span>{formatCents(receipt.payment.tenderedCents ?? 0)}</span></div>
             <div className="r"><span>Change</span><span>{formatCents(receipt.payment.changeCents ?? 0)}</span></div>
           </>
-        ) : <div className="r"><span>Card ref</span><span>{receipt.payment.reference}</span></div>}
+        ) : receipt.payment.tender === 'check' ? (
+          <>
+            <div className="r"><span>Check</span><span>{formatCents(receipt.payment.tenderedCents ?? 0)}</span></div>
+            <div className="r"><span><b>Cash to customer</b></span><span><b>{formatCents(receipt.payment.changeCents ?? 0)}</b></span></div>
+          </>
+        ) : <div className="r"><span>Card</span><span>{formatCents(receipt.payment.amountCents)}{receipt.payment.reference ? ` · ref ${receipt.payment.reference}` : ''}</span></div>}
         <hr />
         <div className="c">{receipt.store.footer}<br />{receipt.store.refundPolicy}</div>
       </div>
@@ -442,6 +448,33 @@ export function TodayModal({ onClose }: { onClose: () => void }) {
           <div className="hint">For filing prep only. Verify rates with the SC Department of Revenue.</div>
         </>
       )}
+    </Modal>
+  );
+}
+
+/** Check cashing: type the check amount; the fee and the cash to hand over are worked out automatically. */
+export function CheckModal({ feeBp, ticketTotal, busy, error, onClose, onDone }: {
+  feeBp: number; ticketTotal: number; busy: boolean; error: string; onClose: () => void; onDone: (checkCents: number) => void;
+}) {
+  const { digits, press } = useDigits(8);
+  const check = centsFromKeypadDigits(digits);
+  const fee = checkFeeCents(check, feeBp);
+  const cashOut = check - fee - ticketTotal;
+  const ok = check > 0 && cashOut >= 0 && !busy;
+  const pct = feeBp % 100 === 0 ? String(feeBp / 100) : (feeBp / 100).toFixed(2);
+  return (
+    <Modal title="Cash a check" onClose={onClose}>
+      <div className="hint">Type the amount written on the check. Digits fill in from the right, so 5 0 0 0 0 makes $500.00.</div>
+      <div className="display num" aria-label="Check amount">{formatCents(check)}</div>
+      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={() => { if (ok) onDone(check); }} />
+      <div className="change" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fee {pct}%</span><span className="num">{formatCents(fee)}</span></div>
+        {ticketTotal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Items on this ticket</span><span className="num">{formatCents(ticketTotal)}</span></div>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 24 }}><span>Cash to customer</span><span className="num">{formatCents(Math.max(0, cashOut))}</span></div>
+      </div>
+      {check > 0 && cashOut < 0 && <div className="err">The check does not cover the fee and the items on the ticket.</div>}
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={!ok} onClick={() => onDone(check)}>Done — pay out {formatCents(Math.max(0, cashOut))}</button>
     </Modal>
   );
 }

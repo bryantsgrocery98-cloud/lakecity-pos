@@ -14,6 +14,7 @@ type DayReport = {
   voids: { count: number; total: number }; refunds: { count: number; total: number };
   byCategory: { category: string; qty: number; cents: number }[]; byAuthority: { title: string; cents: number }[];
   tenders: { tender: string; cents: number; count: number }[]; lottery: { sales: number; payouts: number }; noSales: number;
+  checks?: { count: number; tendered: number; cashOut: number };
   items: { name: string; qty: number; cents: number }[];
 };
 type PrinterCfg = { target: string; printReceipts: boolean; drawerKick: boolean; available: string[]; drawerPort: string; serialPorts: { port: string; name: string }[]; storeName: string; header: string; footer: string; showCashier: boolean };
@@ -216,6 +217,10 @@ function DayTab({ pin, cashier }: { pin: string; cashier: string }) {
             {r.tenders.map((t) => <Row key={t.tender} l={`${t.tender} (${t.count})`} v={formatCents(t.cents)} />)}
             <Row l="Lottery sales" v={formatCents(r.lottery.sales)} />
             <Row l="Lottery payouts" v={`-${formatCents(r.lottery.payouts)}`} />
+            {r.checks && r.checks.count > 0 && <>
+              <Row l={`Checks cashed (${r.checks.count})`} v={formatCents(r.checks.tendered)} />
+              <Row l="Cash paid out for checks" v={`-${formatCents(r.checks.cashOut)}`} />
+            </>}
             <Row l="No Sale opens" v={String(r.noSales)} />
           </tbody></table>
         </div>

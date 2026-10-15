@@ -43,6 +43,8 @@ export type SettingsDto = {
   warnQty: number;
   warnTotalCents: number;
   scanIdOnly: boolean;
+  /** Check-cashing fee in basis points (100 = 1%). */
+  checkFeeBp: number;
 };
 
 export type Bootstrap = {
@@ -56,9 +58,11 @@ export type Bootstrap = {
 };
 
 export type SaleLineInput = {
-  kind: 'item' | 'button' | 'ask' | 'lottery';
+  kind: 'item' | 'button' | 'ask' | 'lottery' | 'service';
   itemId?: number;
   buttonId?: number;
+  /** For service lines: which service. */
+  service?: 'gas' | 'check_fee';
   qty: number;
   /** Only used for ask-price and lottery lines. The server prices everything else. */
   unitCents?: number;
@@ -74,7 +78,7 @@ export type SaleInput = {
   cashier: string;
   discountPct: number;
   lines: SaleLineInput[];
-  payment: { tender: 'cash' | 'card'; tenderedCents?: number; reference?: string };
+  payment: { tender: 'cash' | 'card' | 'check'; tenderedCents?: number; reference?: string };
   ageCheck?: AgeCheckInput;
 };
 
@@ -85,7 +89,7 @@ export type Receipt = {
   store: StoreDto;
   lines: { name: string; qty: number; unitCents: number; grossCents: number; discountCents: number }[];
   totals: Totals;
-  payment: { tender: 'cash' | 'card'; amountCents: number; tenderedCents: number | null; changeCents: number | null; reference: string | null };
+  payment: { tender: 'cash' | 'card' | 'check'; amountCents: number; tenderedCents: number | null; changeCents: number | null; reference: string | null };
 };
 
 export type HoldDto = {

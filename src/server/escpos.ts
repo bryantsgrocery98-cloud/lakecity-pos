@@ -64,6 +64,9 @@ export function receiptBytes(r: Receipt, opts: { kickDrawer?: boolean; cols?: nu
   if (r.payment.tender === 'cash') {
     p.row('Cash', formatCents(r.payment.tenderedCents ?? r.totals.totalCents));
     p.row('Change', formatCents(r.payment.changeCents ?? 0));
+  } else if (r.payment.tender === 'check') {
+    p.row('Check', formatCents(r.payment.tenderedCents ?? r.totals.totalCents));
+    p.bold(true).row('Cash to customer', formatCents(r.payment.changeCents ?? 0)).bold(false);
   } else {
     p.row('Card', formatCents(r.payment.amountCents));
     if (r.payment.reference) p.row('Ref', r.payment.reference);
@@ -95,6 +98,7 @@ export type ZReport = {
   byAuthority: { title: string; cents: number }[];
   tenders: { tender: string; cents: number; count: number }[];
   lottery: { sales: number; payouts: number }; noSales: number;
+  checks?: { count: number; tendered: number; cashOut: number };
   items: { name: string; qty: number; cents: number }[];
 };
 
@@ -123,6 +127,7 @@ export function zReportBytes(z: ZReport, storeName: string, opts: { items?: bool
   p.rule();
   p.row('Lottery sales', formatCents(z.lottery.sales));
   p.row('Lottery payouts', `-${formatCents(z.lottery.payouts)}`);
+  if (z.checks && z.checks.count) { p.row(`Checks cashed (${z.checks.count})`, formatCents(z.checks.tendered)); p.row('Cash paid for checks', `-${formatCents(z.checks.cashOut)}`); }
   p.row('No Sale opens', String(z.noSales));
   if (opts.items && z.items.length) {
     p.rule();

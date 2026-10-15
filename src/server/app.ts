@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { audit, getSetting, type DB } from './db.js';
 import type { Authority } from '../core/tax.js';
-import { computeTotals, lotteryLabel, type TicketLine } from '../core/ticket.js';
+import { computeTotals, lotteryLabel, type TicketLine, checkFeeCents, checkFeeLabel } from '../core/ticket.js';
 import { workdayFor } from '../core/workday.js';
 import type { createUpdater } from './updater.js';
 import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
@@ -94,6 +94,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
         warnQty: parseInt(getSetting(db, 'warn_qty', '99'), 10),
         warnTotalCents: parseInt(getSetting(db, 'warn_total_cents', '99999'), 10),
         scanIdOnly: getSetting(db, 'scan_id_only', 'true') === 'true',
+        checkFeeBp: parseInt(getSetting(db, 'check_fee_bp', '100'), 10) || 0,
       },
       authorities: loadAuthorities(db),
       pages,
@@ -150,14 +151,16 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     if (totals.ageRequired !== null) checkAge(db, input.ageCheck, input.cashier, totals.ageRequired);
 
     const pay = input.payment;
-    if (!pay || (pay.tender !== 'cash' && pay.tender !== 'card')) throw new HttpError(400, 'Choose how the customer is paying.');
+    if (!pay || (pay.tender !== 'cash' && pay.tender !== 'card' && pay.tender !== 'check')) throw new HttpError(400, 'Choose how the customer is paying.');
     let tendered: number | null = null;
     let change: number | null = null;
     let reference: string | null = null;
-    if (pay.tender === 'cash') {
+    if (pay.tender === 'cash' || pay.tender === 'check') {
+      // A cashed check works like cash handed over: the change is the cash the customer walks out with.
       tendered = Number.isInteger(pay.tenderedCents) ? (pay.tenderedCents as number) : 0;
-      if (tendered < totals.totalCents) throw new HttpError(400, 'The cash given is less than the total.');
+      if (tendered < totals.totalCents) throw new HttpError(400, pay.tender === 'check' ? 'The check is less than the total.' : 'The cash given is less than the total.');
       change = tendered - totals.totalCents;
+      if (pay.tender === 'check') reference = String(pay.reference ?? '').trim().slice(0, 24) || null;
     } else {
       // The card machine runs the charge on its own; the register only records that the sale was paid by card.
       reference = String(pay.reference ?? '').trim().slice(0, 16) || null;
@@ -201,7 +204,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     res.json(receipt);
     // After the sale: kick the drawer on cash, and print a receipt if that's turned on. Never block the sale on the printer.
     const printer = getSetting(db, 'printer_target', '');
-    const kick = pay.tender === 'cash' && getSetting(db, 'drawer_kick', 'true') === 'true';
+    const kick = (pay.tender === 'cash' || pay.tender === 'check') && getSetting(db, 'drawer_kick', 'true') === 'true';
     const auto = getSetting(db, 'print_receipts', 'false') === 'true';
     const viaPrinter = !getSetting(db, 'drawer_port', '');
     if (kick && !viaPrinter) openDrawer().catch((e) => console.log(`[drawer] ${(e as Error).message}`));
@@ -663,7 +666,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const lines = Array.isArray(b.lines) ? b.lines.slice(0, 200).map((l) => ({ name: String(l.name ?? '').slice(0, 60), qty: Number(l.qty) || 1, cents: Number(l.cents) || 0 })) : [];
     display.set({ mode: b.mode === 'ticket' || b.mode === 'paid' ? b.mode : 'idle', lines,
       subtotalCents: Number(b.subtotalCents) || 0, taxCents: Number(b.taxCents) || 0, discountCents: Number(b.discountCents) || 0, totalCents: Number(b.totalCents) || 0,
-      tender: b.tender === 'cash' || b.tender === 'card' ? b.tender : undefined, tenderedCents: Number(b.tenderedCents) || undefined, changeCents: Number(b.changeCents) || 0 });
+      tender: b.tender === 'cash' || b.tender === 'card' || b.tender === 'check' ? b.tender : undefined, tenderedCents: Number(b.tenderedCents) || undefined, changeCents: Number(b.changeCents) || 0 });
     res.json({ ok: true, viewers: display.clientCount() });
   }));
   app.get('/api/display/settings', wrap(async (_req, res) => {
@@ -783,6 +786,18 @@ function buildLine(db: DB, l: SaleLineInput, i: number): TicketLine {
     }
     return { key, kind: b.price_mode === 'ask' ? 'ask' : 'button', name: b.name, qty: l.qty, unitCents: unit,
       authorityId: b.authority_id, category: b.category, ageMin: b.age_min, buttonId: b.id };
+  }
+  if (l.kind === 'service') {
+    const amt = l.unitCents as number;
+    if (!Number.isInteger(amt) || amt <= 0 || amt > 10_000_000) throw new HttpError(400, 'Enter the amount.');
+    if (l.service === 'gas') return { key, kind: 'service', service: 'gas', name: 'Gas', qty: 1, unitCents: amt, authorityId: null, category: 'Gas', ageMin: null };
+    if (l.service === 'check_fee') {
+      // The amount sent is the check; the register works out the fee itself.
+      const bp = parseInt(getSetting(db, 'check_fee_bp', '100'), 10) || 0;
+      return { key, kind: 'service', service: 'check_fee', name: checkFeeLabel(amt, bp), qty: 1, unitCents: checkFeeCents(amt, bp), baseCents: amt,
+        authorityId: null, category: 'Check Cashing', ageMin: null };
+    }
+    throw new HttpError(400, 'Unknown service.');
   }
   if (l.kind === 'lottery') {
     if (!Number.isInteger(l.unitCents) || (l.unitCents as number) <= 0 || (l.unitCents as number) > 100_000) throw new HttpError(400, 'Enter the lottery amount.');

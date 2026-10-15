@@ -284,3 +284,31 @@ describe('find pictures online', () => {
     }
   });
 });
+
+describe('gas and check cashing', () => {
+  it('rings gas with no tax and settles a cashed check with the fee on the ticket', async () => {
+    const gas = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'gas', qty: 1, unitCents: 2500 }], payment: { tender: 'cash', tenderedCents: 2500 } });
+    expect(gas.status).toBe(200);
+    const g = (await gas.json()) as Receipt;
+    expect(g.totals.taxCents).toBe(0);
+    expect(g.lines[0]!.name).toBe('Gas');
+    expect(g.totals.totalCents).toBe(2500);
+
+    // $500 check, 1% fee: fee $5.00 on the ticket, $495.00 cash to the customer
+    const chk = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'check_fee', qty: 1, unitCents: 50000 }], payment: { tender: 'check', tenderedCents: 50000 } });
+    expect(chk.status).toBe(200);
+    const c = (await chk.json()) as Receipt;
+    expect(c.totals.totalCents).toBe(500);
+    expect(c.lines[0]!.name).toContain('1%');
+    expect(c.payment.tender).toBe('check');
+    expect(c.payment.changeCents).toBe(49500);
+
+    // a check too small for the ticket is refused
+    const bad = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'check_fee', qty: 1, unitCents: 100 }, { kind: 'item', itemId: item('Cola').id, qty: 1 }], payment: { tender: 'check', tenderedCents: 100 } });
+    expect(bad.status).toBe(400);
+
+    const day = (await (await fetch(base + '/api/reports/day')).json()) as { checks: { count: number; tendered: number; cashOut: number }; byCategory: { category: string; cents: number }[] };
+    expect(day.checks.count).toBeGreaterThanOrEqual(1);
+    expect(day.byCategory.some((c) => c.category === 'Gas')).toBe(true);
+  });
+});

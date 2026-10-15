@@ -84,9 +84,9 @@ h1, h2, h3 { margin: 0; }
 .item .pr { font-size: 17px; }
 
 .services, .actions { flex: none; display: grid; gap: 10px; }
-.services { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.services { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .actions { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-.svc { height: 62px; border-radius: 12px; border: 2px solid #8da2b3; background: #eaf0f5; display: flex; align-items: center; gap: 10px; padding: 0 12px; text-align: left; font-size: 17px; font-weight: 600; }
+.svc { height: 62px; border-radius: 12px; border: 2px solid #8da2b3; background: #eaf0f5; display: flex; align-items: center; gap: 8px; padding: 0 10px; text-align: left; font-size: 16px; font-weight: 600; }
 .svc.lotto { border-color: #5db68a; background: var(--good-bg); color: #0b4a33; }
 .svc small { display: block; font-size: 12px; font-weight: 400; }
 .act { position: relative; height: 60px; border-radius: 12px; border: 1px solid var(--line-2); background: #fff; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 17px; font-weight: 600; }
@@ -254,3 +254,20 @@ table.rep td:last-child { text-align: right; }
 .cust-thanks { font-size: 72px; font-weight: 800; color: #6fe3b4; }
 .cust-paidrow { display: flex; justify-content: space-between; width: min(720px, 90vw); font-size: 38px; color: #b9c6d1; }
 .cust-change { color: #fff; font-size: 72px; font-weight: 800; border-top: 2px solid #243543; padding-top: 16px; }
+
+/* ---------- compact pop-ups: on shorter screens everything fits without scrolling ---------- */
+.modal { max-height: calc(100vh - 16px); }
+@media (max-height: 900px) {
+  .modal { padding: 14px 16px; gap: 8px; border-radius: 16px; }
+  .modal-head h2 { font-size: 22px; }
+  .modal .display { height: 56px; font-size: 34px; }
+  .modal .key { height: 48px; font-size: 24px; }
+  .modal .keypad { gap: 6px; }
+  .modal .osk-key { height: 42px; font-size: 18px; }
+  .modal .hint { font-size: 14px; }
+  .modal .btn-block { min-height: 50px !important; font-size: 18px !important; }
+  .modal .pick { padding: 8px 12px; }
+  .modal .quick .btn { min-height: 44px; }
+  .modal .change { padding: 8px 12px; }
+  .modal .result .head { padding: 10px; }
+}
