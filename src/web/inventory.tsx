@@ -159,7 +159,7 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
         </aside>
       </div>
       {importing && <ImportModal pin={pin} cashier={cashier} onClose={() => setImporting(false)} onDone={() => { setImporting(false); load().then(() => onChanged()); }} />}
-      {finding && <FindImagesModal pin={pin} cashier={cashier} missing={items.filter((i) => i.active && i.imageVersion === 0 && i.barcodes.length > 0).length} onClose={() => { setFinding(false); load().then(() => onChanged()); }} />}
+      {finding && <FindImagesModal pin={pin} cashier={cashier} missing={items.filter((i) => i.active && i.imageVersion === 0 && i.barcodes.length > 0).length} onClose={() => { setFinding(false); load().then(() => onChanged()); }} onFinished={() => load().then(() => onChanged())} />}
     </div>
   );
 }
@@ -478,14 +478,20 @@ async function shrinkToJpeg(blob: Blob, max: number): Promise<string> {
 
 type FindJob = { total: number; done: number; found: number; running: boolean; startedAt: string | null; finishedAt: string | null };
 
-function FindImagesModal({ pin, cashier, missing, onClose }: { pin: string; cashier: string; missing: number; onClose: () => void }) {
+function FindImagesModal({ pin, cashier, missing, onClose, onFinished }: { pin: string; cashier: string; missing: number; onClose: () => void; onFinished: () => void }) {
   const [job, setJob] = useState<FindJob | null>(null);
   const [msg, setMsg] = useState('');
+  const wasRunning = useRef(false);
   useEffect(() => {
-    const tick = () => api<FindJob>('/api/find-images/status').then(setJob).catch(() => {});
+    const tick = () => api<FindJob>('/api/find-images/status').then((j) => {
+      setJob(j);
+      if (wasRunning.current && !j.running) onFinished(); // refresh the list the moment it finishes
+      wasRunning.current = j.running;
+    }).catch(() => {});
     tick();
     const t = window.setInterval(tick, 1500);
     return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const start = async () => {
     setMsg('');

@@ -268,7 +268,7 @@ export async function fetchImportImages(db: DB, imagesDir: string, pending: { it
     while (i < pending.length) {
       const job = pending[i++]!;
       try {
-        const res = await fetch(job.url, { signal: AbortSignal.timeout(15000) });
+        const res = await fetch(job.url, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'BryantsGroceryPOS/1.0 (store register)' } });
         if (!res.ok) throw new Error(String(res.status));
         const buf = Buffer.from(await res.arrayBuffer());
         if (buf.length < 200 || buf.length > 3_000_000) throw new Error('bad size');
