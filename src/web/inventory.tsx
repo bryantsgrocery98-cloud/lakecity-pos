@@ -28,6 +28,7 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
   const [msg, setMsg] = useState('');
   const [update, setUpdate] = useState<{ current: string; latest: string | null; state: string; message: string } | null>(null);
   const [importing, setImporting] = useState(false);
+  const [finding, setFinding] = useState(false);
 
   const load = () => api<InventoryItem[]>('/api/items').then(setItems).catch((e: Error) => setMsg(e.message));
   useEffect(() => { load(); api<typeof update>('/api/update/status').then(setUpdate).catch(() => {}); }, []);
@@ -80,6 +81,7 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
         <div className="topbar-right">
           <span className="pill" title={update?.message ?? ''}>v{version}{update?.latest && update.latest !== version ? ` · ${update.latest} available` : ''}</span>
           <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setImporting(true)}><Icon name="upload" size={20} /> Import price book</button>
+          <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setFinding(true)}><Icon name="image" size={20} /> Find pictures online</button>
           <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => { setAdding(true); setSel(null); }}><Icon name="plus" size={20} /> New item</button>
           <button className="btn btn-sm btn-primary" onClick={onClose}>Back to register</button>
         </div>
@@ -157,6 +159,7 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
         </aside>
       </div>
       {importing && <ImportModal pin={pin} cashier={cashier} onClose={() => setImporting(false)} onDone={() => { setImporting(false); load().then(() => onChanged()); }} />}
+      {finding && <FindImagesModal pin={pin} cashier={cashier} missing={items.filter((i) => i.active && i.imageVersion === 0 && i.barcodes.length > 0).length} onClose={() => { setFinding(false); load().then(() => onChanged()); }} />}
     </div>
   );
 }
@@ -471,4 +474,38 @@ async function shrinkToJpeg(blob: Blob, max: number): Promise<string> {
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
   ctx.drawImage(bmp, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', 0.85);
+}
+
+type FindJob = { total: number; done: number; found: number; running: boolean; startedAt: string | null; finishedAt: string | null };
+
+function FindImagesModal({ pin, cashier, missing, onClose }: { pin: string; cashier: string; missing: number; onClose: () => void }) {
+  const [job, setJob] = useState<FindJob | null>(null);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    const tick = () => api<FindJob>('/api/find-images/status').then(setJob).catch(() => {});
+    tick();
+    const t = window.setInterval(tick, 1500);
+    return () => window.clearInterval(t);
+  }, []);
+  const start = async () => {
+    setMsg('');
+    try { setJob(await api<FindJob>('/api/find-images', { pin, cashier })); } catch (e) { setMsg((e as Error).message); }
+  };
+  const pct = job && job.total ? Math.round((job.done / job.total) * 100) : 0;
+  return (
+    <Modal title="Find pictures online" onClose={onClose}>
+      <div className="hint">Looks up every item that has a barcode but no picture in the free Open Food Facts database and saves the picture it finds. Drinks, snacks and packaged food are usually found; tobacco and local items usually are not. Items that already have a picture are left alone.</div>
+      <div className="field"><span className="field-label">Items without a picture</span><span className="field-value" style={{ fontWeight: 700 }}>{missing}</span></div>
+      {job && (job.running || job.finishedAt) && (
+        <>
+          <div className="field"><span className="field-label">{job.running ? 'Searching…' : 'Finished'}</span><span className="field-value">{job.done} of {job.total} checked · {job.found} pictures found</span></div>
+          <div style={{ height: 14, borderRadius: 7, background: 'var(--line)', overflow: 'hidden' }}><div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent)', transition: 'width .4s' }} /></div>
+        </>
+      )}
+      {msg && <div className="err">{msg}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={!!job?.running || missing === 0} onClick={start}>{job?.running ? 'Working in the background…' : 'Start'}</button>
+      <div className="hint">You can close this and keep using the register; it carries on by itself. Takes a few minutes for a full price book.</div>
+      <button className="btn btn-block" onClick={onClose}>Close</button>
+    </Modal>
+  );
 }

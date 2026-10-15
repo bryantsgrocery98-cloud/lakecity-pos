@@ -10,7 +10,7 @@ import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImpor
 import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
 import { listPrinters, listSerialPorts, pulseSerialDrawer, sendToPrinter } from './printer.js';
 import { createDisplay, listScreens, openCustomerWindow, type DisplayState } from './display.js';
-import { lookupBarcode } from './lookup.js';
+import { lookupBarcode, lookupBarcodeLight } from './lookup.js';
 import { buildDayReport } from './reports.js';
 import type {
   AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
@@ -616,6 +616,40 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   }));
   let imageJob = { total: 0, done: 0, ok: 0, running: false };
   app.get('/api/import/images/status', wrap((_req, res) => res.json(imageJob)));
+
+  // Find pictures online for items that have a barcode but no picture yet. Runs in the background.
+  let findJob = { total: 0, done: 0, found: 0, running: false, startedAt: null as string | null, finishedAt: null as string | null };
+  app.get('/api/find-images/status', wrap((_req, res) => res.json(findJob)));
+  app.post('/api/find-images', wrap((req, res) => {
+    if (!isManagerPin(db, req.body?.pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    if (findJob.running) { res.json(findJob); return; }
+    const rows = db.prepare(`SELECT i.id, b.code FROM items i JOIN barcodes b ON b.item_id = i.id
+      WHERE i.active = 1 AND i.image_version = 0 AND length(b.code) BETWEEN 8 AND 14 AND b.code NOT LIKE '99%' AND b.code NOT LIKE '4996%'
+      GROUP BY i.id`).all() as { id: number; code: string }[];
+    findJob = { total: rows.length, done: 0, found: 0, running: rows.length > 0, startedAt: new Date().toISOString(), finishedAt: null };
+    audit(db, String(req.body?.cashier ?? ''), 'find_images', `${rows.length} items`);
+    res.json(findJob);
+    if (!rows.length) { findJob.running = false; findJob.finishedAt = new Date().toISOString(); return; }
+    (async () => {
+      let i = 0;
+      const worker = async () => {
+        while (i < rows.length) {
+          const row = rows[i++]!;
+          try {
+            const lk = await lookupBarcodeLight(row.code);
+            if (lk.found && lk.imageUrl) {
+              const ok = await fetchImportImages(db, imagesDir, [{ itemId: row.id, url: lk.imageUrl }]);
+              if (ok > 0) findJob.found++;
+            }
+          } catch { /* next */ }
+          findJob.done++;
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      findJob.running = false; findJob.finishedAt = new Date().toISOString();
+      console.log(`[images] looked up ${findJob.total} items, found ${findJob.found} pictures`);
+    })();
+  }));
 
   // ---------- version and activity (the screen reloads itself after an update; the updater waits while a ticket is open) ----------
   app.get('/api/version', (_req, res) => { res.json({ version: extras.version ?? '0' }); });

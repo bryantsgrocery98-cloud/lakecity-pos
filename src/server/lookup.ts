@@ -57,7 +57,12 @@ export function normalizeCode(code: string): string[] {
   return [...out];
 }
 
-export async function lookupBarcode(code: string, fetchFn: typeof fetch = fetch): Promise<Lookup> {
+/** Bulk-friendly lookup: Open Food Facts only, one request at a time, so a run over the whole price book stays polite. */
+export async function lookupBarcodeLight(code: string, fetchFn: typeof fetch = fetch): Promise<Lookup> {
+  return lookupBarcode(code, fetchFn, true);
+}
+
+export async function lookupBarcode(code: string, fetchFn: typeof fetch = fetch, light = false): Promise<Lookup> {
   const key = code.replace(/\D/g, '');
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < 6 * 60 * 60 * 1000) return hit.value;
@@ -77,11 +82,19 @@ export async function lookupBarcode(code: string, fetchFn: typeof fetch = fetch)
         imageUrl: j.product.image_front_url || j.product.image_url || null, category: g.category, ageMin: g.ageMin, source: label };
     } catch { return null; }
   };
-  const attempts: Promise<Lookup | null>[] = [];
-  for (const [label, base] of SOURCES) for (const c of normalizeCode(code)) attempts.push(tryOne(label, base, c));
-  const results = await Promise.all(attempts);
-  const found = results.find((r) => r && r.found); // sources are in priority order
-  if (found) { cache.set(key, { at: Date.now(), value: found }); return found; }
+  if (light) {
+    const [label, base] = SOURCES[0];
+    for (const c of normalizeCode(code)) {
+      const r = await tryOne(label, base, c);
+      if (r) { cache.set(key, { at: Date.now(), value: r }); return r; }
+    }
+  } else {
+    const attempts: Promise<Lookup | null>[] = [];
+    for (const [label, base] of SOURCES) for (const c of normalizeCode(code)) attempts.push(tryOne(label, base, c));
+    const results = await Promise.all(attempts);
+    const found = results.find((r) => r && r.found); // sources are in priority order
+    if (found) { cache.set(key, { at: Date.now(), value: found }); return found; }
+  }
   cache.set(key, { at: Date.now(), value: miss });
   return miss;
 }

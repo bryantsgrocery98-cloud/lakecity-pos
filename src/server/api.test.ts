@@ -270,3 +270,17 @@ describe('quick add from a scan', () => {
     expect(noPin.status).toBe(403);
   });
 });
+
+describe('find pictures online', () => {
+  it('starts a background job over items with barcodes and no picture', async () => {
+    const r = await post('/api/find-images', { pin: '2222', cashier: 'Mgr' });
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { total: number; running: boolean };
+    expect(j.total).toBeGreaterThan(0); // the quick-added test item has a real-looking barcode
+    for (let i = 0; i < 40; i++) {
+      const s = (await (await fetch(base + '/api/find-images/status')).json()) as { running: boolean; done: number; total: number };
+      if (!s.running) { expect(s.done).toBe(s.total); return; }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  });
+});
