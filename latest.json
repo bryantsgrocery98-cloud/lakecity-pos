@@ -1,7 +1,7 @@
 {
-  "version": "0.8.2",
-  "file": "lakecity-pos-0.8.2.zip",
-  "sha256": "b1dfe0a904d7aee86c6dbacd8dcf35e761bc36965cffbfa732af10bd232e7b19",
-  "notes": "Find pictures: list refreshes itself when the search finishes.",
-  "builtAt": "2026-10-15T01:28:53.561Z"
+  "version": "0.9.0",
+  "file": "lakecity-pos-0.9.0.zip",
+  "sha256": "dd9802b3375bc984900c0eff6acee994918149579a81a3308e7ab4cf578089ab",
+  "notes": "Gas button; Cash a Check with automatic 1% fee; pop-ups fit the screen; each scan is its own ticket line; keyboard PIN no longer mistaken for a scan.",
+  "builtAt": "2026-10-15T01:55:27.878Z"
 }
