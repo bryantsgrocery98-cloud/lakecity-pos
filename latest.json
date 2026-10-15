@@ -1,7 +1,7 @@
 {
-  "version": "0.7.3",
-  "file": "lakecity-pos-0.7.3.zip",
-  "sha256": "48e8ed67979a082c6c3428bfeac05c6dd1ecf50d410b7e08ddceec3ead06b984",
-  "notes": "ID scan fix: license barcodes are recognized at any scanner speed and never land in the search box.",
-  "builtAt": "2026-10-15T00:30:05.736Z"
+  "version": "0.7.4",
+  "file": "lakecity-pos-0.7.4.zip",
+  "sha256": "7cf6e629035b2a662c0c6c5e8cddbb8a537cb4be0ce028374f6d693bcaf23fab",
+  "notes": "ID check now understands scanners set to 'driver license parsing' (ID:date|date|... lines).",
+  "builtAt": "2026-10-15T00:34:45.418Z"
 }
