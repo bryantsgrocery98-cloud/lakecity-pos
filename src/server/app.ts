@@ -636,9 +636,16 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     res.json(extras.updater ? extras.updater.status() : { current: extras.version ?? '0', latest: null, state: 'idle', message: 'Auto-update is off.', checkedAt: null, source: '' });
   }));
   app.post('/api/update/check', wrap(async (req, res) => {
-    if (!isManagerPin(db, req.body?.pin)) throw new HttpError(403, 'A manager PIN is needed.');
     if (!extras.updater) throw new HttpError(400, 'Auto-update is off.');
+    audit(db, String(req.body?.cashier ?? ''), 'update_check');
     res.json(await extras.updater.check(true));
+  }));
+  app.post('/api/update/restart', wrap((req, res) => {
+    if (!extras.updater) throw new HttpError(400, 'Auto-update is off.');
+    if (!extras.updater.pending()) throw new HttpError(400, 'No update is waiting.');
+    audit(db, String(req.body?.cashier ?? ''), 'update_install', extras.updater.pending() ?? '');
+    res.json({ ok: true });
+    setTimeout(() => extras.updater!.restartNow(), 300);
   }));
 
   // ---------- quick daily summary ----------

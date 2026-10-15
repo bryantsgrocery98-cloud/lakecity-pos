@@ -66,6 +66,26 @@ export function createUpdater(opts: UpdaterOptions) {
   let running = false;
   let onRestart: (() => void) | null = null;
   let busyUntil = 0; // while a ticket is open on the register, hold off restarting
+  let installed: string | null = null; // a version already unpacked and waiting for the restart
+  let restartTimer: NodeJS.Timeout | null = null;
+  let installedAt = 0;
+
+  function restartNow() {
+    if (restartTimer) clearTimeout(restartTimer);
+    restartTimer = null;
+    status.state = 'restarting'; status.message = `Restarting into version ${installed ?? status.latest ?? ''}…`;
+    log(status.message);
+    onRestart?.(); process.exit(RESTART_EXIT_CODE);
+  }
+  function restartWhenIdle() {
+    if (Date.now() < busyUntil) {
+      // A ticket is open. Wait, but never longer than 30 minutes: then the register screen offers an "install now" button instead.
+      status.message = `Version ${installed} is ready. Waiting for the ticket to finish…`;
+      restartTimer = setTimeout(restartWhenIdle, 5000);
+      return;
+    }
+    restartNow();
+  }
 
   async function readManifest(): Promise<Manifest> {
     if (/^https?:\/\//.test(opts.source)) {
@@ -129,6 +149,12 @@ export function createUpdater(opts: UpdaterOptions) {
         return status;
       }
       if (!apply) { status.state = 'idle'; status.message = `Version ${m.version} is available.`; return status; }
+      if (installed === m.version) {
+        // Already unpacked earlier; just try the restart again.
+        status.state = 'restarting';
+        if (!restartTimer) restartTimer = setTimeout(restartWhenIdle, 500);
+        return status;
+      }
       status.state = 'downloading'; status.message = `Downloading version ${m.version}…`;
       log(status.message);
       const buf = await downloadZip(m);
@@ -136,13 +162,10 @@ export function createUpdater(opts: UpdaterOptions) {
       log(status.message);
       const needInstall = install(buf, m.version);
       fs.writeFileSync(path.join(opts.root, 'updates', 'pending.json'), JSON.stringify({ version: m.version, npmInstall: needInstall, at: new Date().toISOString() }));
+      installed = m.version; installedAt = Date.now();
       status.state = 'restarting'; status.message = `Version ${m.version} installed. Restarting the register…`;
       log(status.message);
-      const restartWhenIdle = () => {
-        if (Date.now() < busyUntil) { setTimeout(restartWhenIdle, 5000); return; }
-        onRestart?.(); process.exit(RESTART_EXIT_CODE);
-      };
-      setTimeout(restartWhenIdle, 1500);
+      restartTimer = setTimeout(restartWhenIdle, 1500);
       return status;
     } catch (e) {
       status.state = 'error'; status.message = (e as Error).message;
@@ -151,14 +174,17 @@ export function createUpdater(opts: UpdaterOptions) {
     } finally { running = false; }
   }
 
-  function start(intervalMs = 60 * 60 * 1000) {
+  function start(intervalMs = 10 * 60 * 1000) {
     setTimeout(() => { check(); }, 5000);
     setInterval(() => { check(); }, intervalMs).unref();
   }
 
-  return { check, start, status: () => status, onRestart: (fn: () => void) => { onRestart = fn; },
+  return { check, start, status: () => ({ ...status, pending: installed, pendingSince: installedAt || null }), onRestart: (fn: () => void) => { onRestart = fn; },
     /** Called by the register screen; a ticket in progress keeps restarts on hold for a couple of minutes. */
-    setBusy: (open: boolean) => { busyUntil = open ? Date.now() + 120_000 : 0; } };
+    setBusy: (open: boolean) => { busyUntil = open ? Date.now() + 120_000 : 0; },
+    /** Restart into the installed version right now, ticket or not (the cashier asked). */
+    restartNow: () => { if (!installed) throw new Error('No update is waiting.'); busyUntil = 0; restartNow(); },
+    pending: () => installed };
 }
 
 function readIfExists(p: string): string | null {

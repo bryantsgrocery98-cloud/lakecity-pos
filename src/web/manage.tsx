@@ -21,7 +21,7 @@ type PrinterCfg = { target: string; printReceipts: boolean; drawerKick: boolean;
 const when = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 export function ManagePage({ pin, cashier, version, onClose }: { pin: string; cashier: string; version: string; onClose: () => void }) {
-  const [tab, setTab] = useState<'sales' | 'day' | 'printer'>('sales');
+  const [tab, setTab] = useState<'sales' | 'day' | 'printer' | 'updates'>('sales');
   return (
     <div className="inv">
       <header className="topbar">
@@ -34,11 +34,13 @@ export function ManagePage({ pin, cashier, version, onClose }: { pin: string; ca
         <button className={`btn ${tab === 'sales' ? 'btn-dark' : ''}`} onClick={() => setTab('sales')}>Sales, voids, refunds</button>
         <button className={`btn ${tab === 'day' ? 'btn-dark' : ''}`} onClick={() => setTab('day')}>Day report (X / Z)</button>
         <button className={`btn ${tab === 'printer' ? 'btn-dark' : ''}`} onClick={() => setTab('printer')}>Printer</button>
+        <button className={`btn ${tab === 'updates' ? 'btn-dark' : ''}`} onClick={() => setTab('updates')}>Updates</button>
       </div>
       <div className="inv-body" style={{ display: 'block', overflowY: 'auto' }}>
         {tab === 'sales' && <SalesTab pin={pin} cashier={cashier} />}
         {tab === 'day' && <DayTab pin={pin} cashier={cashier} />}
         {tab === 'printer' && <PrinterTab pin={pin} />}
+        {tab === 'updates' && <UpdatesTab cashier={cashier} version={version} />}
       </div>
     </div>
   );
@@ -377,5 +379,44 @@ function CustomerScreenSettings({ pin }: { pin: string }) {
       </div>
       <TextSetting label="Welcome message (shown between customers)" value={cfg.welcome} onSave={(v) => save({ welcome: v })} />
     </>
+  );
+}
+
+// ---------- updates ----------
+
+type UpdateStatus = { current: string; latest: string | null; state: string; message: string; checkedAt: string | null; pending: string | null };
+
+function UpdatesTab({ cashier, version }: { cashier: string; version: string }) {
+  const [st, setSt] = useState<UpdateStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const load = () => api<UpdateStatus>('/api/update/status').then(setSt).catch((e: Error) => setMsg(e.message));
+  useEffect(() => { load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t); }, []);
+  const check = async () => {
+    setBusy(true); setMsg('');
+    try { const r = await api<UpdateStatus>('/api/update/check', { cashier }); setSt(r); if (r.state === 'up-to-date') play('done'); }
+    catch (e) { setMsg((e as Error).message); play('bad'); } finally { setBusy(false); }
+  };
+  const install = async () => {
+    try { await api('/api/update/restart', { cashier }); setMsg('Installing… the register restarts and the screen comes back by itself.'); }
+    catch (e) { setMsg((e as Error).message); }
+  };
+  const label: Record<string, string> = { 'up-to-date': 'Up to date', checking: 'Checking…', downloading: 'Downloading…', installing: 'Installing…', restarting: 'Ready to install', error: 'Problem', idle: 'Waiting' };
+  return (
+    <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {msg && <div className="inv-msg" style={{ margin: 0 }}>{msg}</div>}
+      <div className="editor-label">THIS REGISTER</div>
+      <div className="field"><span className="field-label">Running version</span><span className="field-value" style={{ fontWeight: 700 }}>v{version}</span></div>
+      {st && <>
+        <div className="field"><span className="field-label">Newest version</span><span className="field-value">{st.latest ? `v${st.latest}` : 'unknown yet'}</span></div>
+        <div className="field"><span className="field-label">Status</span><span className="field-value">{label[st.state] ?? st.state}{st.checkedAt ? ` · checked ${when(st.checkedAt)}` : ''}</span></div>
+        {st.message && <div className="hint">{st.message}</div>}
+      </>}
+      <div className="quick" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+        <button className="btn btn-primary" disabled={busy} onClick={check}>{busy ? 'Checking…' : 'Check for updates now'}</button>
+        <button className="btn btn-dark" disabled={!st?.pending} onClick={install}>{st?.pending ? `Install v${st.pending} now` : 'Nothing to install'}</button>
+      </div>
+      <div className="hint">The register checks every 10 minutes on its own. An update installs by itself as soon as the ticket is empty; if a ticket is open, a green button appears on the register so the cashier can install it when ready.</div>
+    </div>
   );
 }

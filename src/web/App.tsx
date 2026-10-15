@@ -51,6 +51,7 @@ export function App() {
   const [manage, setManage] = useState<string | null>(null);
   const [sounds, setSounds] = useState(soundsEnabled());
   const [updateReady, setUpdateReady] = useState<string | null>(null);
+  const [updatePending, setUpdatePending] = useState<string | null>(null); // installed on disk, waiting for a restart
 
   // Tell the register program whether a ticket is open, so it never restarts for an update mid-sale.
   useEffect(() => {
@@ -68,6 +69,8 @@ export function App() {
       try {
         const v = (await api<{ version: string }>('/api/version')).version;
         if (v !== boot.version) setUpdateReady(v);
+        const st = await api<{ pending: string | null }>('/api/update/status');
+        setUpdatePending(st.pending && st.pending !== boot.version ? st.pending : null);
       } catch { /* the program is restarting; try again shortly */ }
     }, 20_000);
     return () => window.clearInterval(t);
@@ -389,6 +392,13 @@ export function App() {
         <div><span className="brand">{boot.store.name}</span><span className="sub">Register 1</span><span className="sub" data-testid="version">v{boot.version}</span></div>
         <div className="topbar-right">
           {updateReady && <span className="pill" style={{ background: '#1c4a3c', color: '#bff0dc' }}>Update {updateReady} ready</span>}
+          {!updateReady && updatePending && (
+            <button className="btn btn-sm" style={{ background: '#1c4a3c', color: '#bff0dc', borderColor: '#2f7a5c' }}
+              onClick={() => setModal({ t: 'confirm', title: `Install update ${updatePending}?`, message: lines.length > 0 ? 'The ticket on screen will be lost. Finish or hold it first, or install anyway.' : 'The register restarts and comes right back (about 15 seconds).', yes: 'Install now',
+                onYes: () => { setModal(null); api('/api/update/restart', { cashier: user.name }).catch(() => {}); showToast('Installing the update… the screen will come back by itself.'); } })}>
+              Update {updatePending} ready — tap to install
+            </button>
+          )}
           <span className="pill">Cashier: {user.name}</span>
           {isMgr && <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setInventory(user.pin)}>
             <Icon name="box" size={20} /> Inventory
