@@ -52,6 +52,7 @@ export function App() {
   const [sounds, setSounds] = useState(soundsEnabled());
   const [updateReady, setUpdateReady] = useState<string | null>(null);
   const [updatePending, setUpdatePending] = useState<string | null>(null); // installed on disk, waiting for a restart
+  const [updating, setUpdating] = useState<string | null>(null); // progress text while the Update button works
 
   // Tell the register program whether a ticket is open, so it never restarts for an update mid-sale.
   useEffect(() => {
@@ -76,8 +77,8 @@ export function App() {
     return () => window.clearInterval(t);
   }, [boot]);
   useEffect(() => {
-    if (updateReady && lines.length === 0 && !modal) window.setTimeout(() => window.location.reload(), 1500);
-  }, [updateReady, lines.length, modal]);
+    if (updateReady && (updating || (lines.length === 0 && !modal))) window.setTimeout(() => window.location.reload(), 1500);
+  }, [updateReady, lines.length, modal, updating]);
   useEffect(() => installTapSound(), []); // manager PIN while the inventory page is open
   const invScan = useRef<((code: string) => void) | null>(null);
   const tap = useRef({ id: '', t: 0 });
@@ -312,6 +313,28 @@ export function App() {
     } catch (e) { showToast((e as Error).message, true); await refreshHolds(); }
   };
 
+  /** One tap: check for a newer build, install it, restart. The screen reloads itself when the register is back. */
+  const runUpdate = async () => {
+    if (!user) return;
+    const go = async () => {
+      setModal(null);
+      try {
+        if (!updatePending) {
+          setUpdating('Checking…');
+          const st = await api<{ state: string; message: string; latest: string | null; current: string; pending: string | null }>('/api/update/check', { cashier: user.name });
+          if (st.state === 'up-to-date') { setUpdating(null); showToast(`Up to date (v${st.current}).`); return; }
+          if (st.state === 'error') { setUpdating(null); showToast(st.message, true); return; }
+          if (!st.pending) { setUpdating(null); showToast(st.message); return; }
+          setUpdating(`Installing ${st.pending}…`);
+        } else setUpdating(`Installing ${updatePending}…`);
+        await api('/api/update/restart', { cashier: user.name });
+        showToast('Restarting with the update… the screen comes back by itself.');
+      } catch (e) { setUpdating(null); showToast((e as Error).message, true); }
+    };
+    if (lines.length > 0) setModal({ t: 'confirm', title: 'Update now?', message: 'The ticket on screen will be lost. Hold it first if you need it.', yes: 'Update anyway', onYes: go });
+    else go();
+  };
+
   const noSale = async (pin?: string) => {
     if (!user) return;
     try {
@@ -392,11 +415,10 @@ export function App() {
         <div><span className="brand">{boot.store.name}</span><span className="sub">Register 1</span><span className="sub" data-testid="version">v{boot.version}</span></div>
         <div className="topbar-right">
           {updateReady && <span className="pill" style={{ background: '#1c4a3c', color: '#bff0dc' }}>Update {updateReady} ready</span>}
-          {!updateReady && updatePending && (
-            <button className="btn btn-sm" style={{ background: '#1c4a3c', color: '#bff0dc', borderColor: '#2f7a5c' }}
-              onClick={() => setModal({ t: 'confirm', title: `Install update ${updatePending}?`, message: lines.length > 0 ? 'The ticket on screen will be lost. Finish or hold it first, or install anyway.' : 'The register restarts and comes right back (about 15 seconds).', yes: 'Install now',
-                onYes: () => { setModal(null); api('/api/update/restart', { cashier: user.name }).catch(() => {}); showToast('Installing the update… the screen will come back by itself.'); } })}>
-              Update {updatePending} ready — tap to install
+          {!updateReady && (
+            <button className="btn btn-sm" disabled={!!updating} style={{ background: updatePending ? '#1c4a3c' : 'transparent', color: updatePending ? '#bff0dc' : '#fff', borderColor: updatePending ? '#2f7a5c' : '#3a5266' }}
+              onClick={() => runUpdate()}>
+              <Icon name="upload" size={18} /> {updating ?? (updatePending ? `Install ${updatePending}` : 'Update')}
             </button>
           )}
           <span className="pill">Cashier: {user.name}</span>
