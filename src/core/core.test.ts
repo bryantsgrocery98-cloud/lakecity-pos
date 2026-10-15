@@ -172,3 +172,12 @@ describe('scanner-parsed ID line', () => {
     expect(exp.ok && exp.expired).toBe(true);
   });
 });
+
+describe('ID line field order', () => {
+  it('finds the birth date wherever it sits on the line', async () => {
+    const { parseIdForAge } = await import('./aamva.js');
+    const r = parseIdForAge('ID:12/06/2032|FIRST|LAST|07/14/1995|01/15/2023|GA', '2026-10-14');
+    expect(r.ok && r.ageYears).toBe(31);
+    expect(r.ok && r.expired).toBe(false);
+  });
+});

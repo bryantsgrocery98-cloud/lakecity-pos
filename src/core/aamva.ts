@@ -85,10 +85,10 @@ function usDateToIso(s: string): string | null {
 export function parseParsedIdForAge(text: string, today = todayIso()): IdAgeResult {
   const dates = (text.match(/\d{1,2}\/\d{1,2}\/\d{4}/g) ?? []).map(usDateToIso).filter((d): d is string => !!d);
   if (dates.length === 0) return { ok: false, reason: 'The birth date was not found in the ID scan.' };
-  // Birth date is the first date; expiry the second. If they arrived the other way round (expiry in the future), swap.
-  let birth = dates[0]!;
-  let expires = dates[1] ?? null;
-  if (expires && birth > today && expires <= today) [birth, expires] = [expires, birth];
+  // Whatever the field order, the birth date is the earliest date on the line and the expiry the latest.
+  const sorted = [...dates].sort();
+  const birth = sorted[0]!;
+  const expires = sorted.length > 1 ? sorted[sorted.length - 1]! : null;
   return evaluateBirthDate(birth, expires, today);
 }
 
