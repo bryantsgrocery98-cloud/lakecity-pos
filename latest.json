@@ -1,7 +1,7 @@
 {
-  "version": "0.7.1",
-  "file": "lakecity-pos-0.7.1.zip",
-  "sha256": "d97f35c0e581932a1c00aea8b7c9ea934148240f2b08e24a38e2a29e6f762fb4",
-  "notes": "Faster updates: checks every 10 minutes, Updates tab with Check now / Install now, and a tap-to-install button on the register when a ticket is open.",
-  "builtAt": "2026-10-15T00:17:31.575Z"
+  "version": "0.7.2",
+  "file": "lakecity-pos-0.7.2.zip",
+  "sha256": "528b50ea5ada1c2d4e9b749ab390044d920070331c3a1ffaf16bd4847d0a3f10",
+  "notes": "Update button in the register top bar: one tap checks, installs and restarts.",
+  "builtAt": "2026-10-15T00:19:22.916Z"
 }
