@@ -254,3 +254,19 @@ describe('customer display', () => {
     expect(typeof w.welcome).toBe('string');
   });
 });
+
+describe('quick add from a scan', () => {
+  it('creates the item, links the barcode, and the code scans next time', async () => {
+    const r = await post('/api/items/quick', { pin: '2222', cashier: 'Mgr', code: '041570054321', name: 'Test Chips', size: '2.75 oz', priceCents: 199, category: 'Snack', authorityId: boot.authorities[0]!.id, ageMin: null });
+    expect(r.status).toBe(200);
+    const it = (await r.json()) as { id: number; name: string; hasBarcode: boolean };
+    expect(it.name).toBe('Test Chips');
+    expect(it.hasBarcode).toBe(true);
+    const s = await (await fetch(base + '/api/scan/041570054321')).json() as { itemId: number };
+    expect(s.itemId).toBe(it.id);
+    const dup = await post('/api/items/quick', { pin: '2222', code: '041570054321', name: 'Again', priceCents: 100, category: 'Snack' });
+    expect(dup.status).toBe(409);
+    const noPin = await post('/api/items/quick', { pin: '1111', code: '041570099999', name: 'X', priceCents: 100, category: 'Snack' });
+    expect(noPin.status).toBe(403);
+  });
+});

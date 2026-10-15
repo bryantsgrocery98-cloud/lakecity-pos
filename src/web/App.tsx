@@ -6,7 +6,7 @@ import type { Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleLineInput } f
 import { ApiError, api } from './api';
 import {
   AskModal, CardModal, CashModal, ConfirmModal, DiscountModal, DobModal, IdModal, LinkModal, LotteryModal, PayoutModal,
-  PinModal, QtyModal, RecallModal, ReceiptModal, TodayModal, type AgeInfo,
+  NewItemModal, PinModal, QtyModal, RecallModal, ReceiptModal, TodayModal, type AgeInfo, type Lookup,
 } from './modals';
 import { Icon, Keypad, OnScreenKeyboard, Shape } from './parts';
 import { InventoryPage, imageUrl } from './inventory';
@@ -19,7 +19,8 @@ type ModalState =
   | { t: 'discount' } | { t: 'today' }
   | { t: 'ask'; button: ButtonDto }
   | { t: 'qty'; key: string }
-  | { t: 'link'; code: string }
+  | { t: 'link'; code: string; lookup?: Lookup | null }
+  | { t: 'newitem'; code: string; lookup: Lookup | null }
   | { t: 'pin'; title: string; hint: string; then: (pin: string) => void }
   | { t: 'confirm'; title: string; message: string; yes: string; onYes: () => void }
   | { t: 'receipt'; receipt: Receipt };
@@ -220,7 +221,13 @@ export function App() {
       const it = boot.items.find((i) => i.id === itemId);
       if (it) addItem({ ...it });
     } catch (e) {
-      if (e instanceof ApiError && e.status === 404) { setLinkError(''); setModal({ t: 'link', code }); }
+      if (e instanceof ApiError && e.status === 404) {
+        setLinkError(''); setModal({ t: 'link', code });
+        // Ask the open product database in the background; fill the card in when it answers.
+        api<Lookup>(`/api/lookup/${encodeURIComponent(code)}`).then((lk) => {
+          setModal((m) => (m && m.t === 'link' && m.code === code ? { ...m, lookup: lk } : m));
+        }).catch(() => setModal((m) => (m && m.t === 'link' && m.code === code ? { ...m, lookup: null } : m)));
+      }
       else showToast((e as Error).message, true);
     }
   };
@@ -362,6 +369,22 @@ export function App() {
         withPin('Manager PIN', 'A manager PIN is needed to open the drawer without a sale.', (p) => noSale(p));
       } else showToast((e as Error).message, true);
     }
+  };
+
+  const [newItemBusy, setNewItemBusy] = useState(false);
+  const saveNewItem = async (code: string, item: { name: string; size: string | null; priceCents: number; category: string; authorityId: number | null; ageMin: number | null; imageUrl: string | null }, pin?: string) => {
+    if (!user || !boot) return;
+    const p = pin ?? (isMgr ? user.pin : undefined);
+    if (!p) { withPin('Manager PIN', 'A manager PIN is needed to add a new item.', (pp) => saveNewItem(code, item, pp)); return; }
+    setNewItemBusy(true); setLinkError('');
+    try {
+      const it = await api<ItemDto>('/api/items/quick', { ...item, code, pin: p, cashier: user.name });
+      setBoot({ ...boot, items: [...boot.items, it] });
+      setModal(null);
+      addItem({ ...it });
+      showToast(`${it.name} added. It will scan straight in next time.`);
+    } catch (e) { setLinkError((e as Error).message); }
+    finally { setNewItemBusy(false); }
   };
 
   const linkBarcode = async (code: string, itemId: number) => {
@@ -634,7 +657,10 @@ export function App() {
       {modal?.t === 'dob' && <DobModal onClose={() => setModal({ t: 'id' })} onDone={(r) => {
         setAgeInfo({ method: 'manual_dob', ageYears: r.ageYears, expired: r.expired, managerPin: manualPin.current }); setModal({ t: 'id' });
       }} />}
-      {modal?.t === 'link' && <LinkModal code={modal.code} items={boot.items} error={linkError} onClose={() => setModal(null)} onLink={(id) => linkBarcode(modal.code, id)} />}
+      {modal?.t === 'link' && <LinkModal code={modal.code} items={boot.items} lookup={modal.lookup} error={linkError} onClose={() => setModal(null)} onLink={(id) => linkBarcode(modal.code, id)}
+        onNew={() => { if (modal.lookup === undefined) return; setLinkError(''); setModal({ t: 'newitem', code: modal.code, lookup: modal.lookup ?? null }); }} />}
+      {modal?.t === 'newitem' && <NewItemModal code={modal.code} lookup={modal.lookup} authorities={boot.authorities} error={linkError} busy={newItemBusy}
+        categories={Array.from(new Set(boot.items.map((i) => i.category))).sort()} onClose={() => setModal(null)} onSave={(item) => saveNewItem(modal.code, item)} />}
       {modal?.t === 'recall' && <RecallModal holds={holds} onClose={() => setModal(null)} onRecall={recall} />}
       {modal?.t === 'discount' && <DiscountModal buttons={boot.settings.discountButtons} current={discountPct} onClose={() => setModal(null)} onPick={(p) => { setDiscountPct(p); setModal(null); }} />}
       {modal?.t === 'confirm' && <ConfirmModal title={modal.title} message={modal.message} yes={modal.yes} onYes={modal.onYes} onClose={() => setModal(null)} />}
@@ -666,7 +692,7 @@ function Login({ store, version, onLogin }: { store: string; version: string; on
         <div className="dots" aria-label={`${pin.length} digits entered`}>
           {Array.from({ length: Math.max(4, pin.length) }).map((_, i) => <i key={i} className={i < pin.length ? 'f' : ''} />)}
         </div>
-        <Keypad onKey={press} />
+        <Keypad onKey={press} onEnter={() => { if (pin.length >= 4) submit(); }} />
         {error && <div className="err" role="alert">{error}</div>}
         <button className="btn btn-primary btn-block" style={{ minHeight: 62, fontSize: 22 }} disabled={pin.length < 4} onClick={submit}>Start</button>
       </div>

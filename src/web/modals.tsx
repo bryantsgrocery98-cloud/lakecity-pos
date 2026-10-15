@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { formatCents, centsFromKeypadDigits } from '../core/money';
 import { evaluateBirthDate, parseAamvaDate } from '../core/aamva';
+import type { Authority } from '../core/tax';
 import type { HoldDto, ItemDto, Receipt } from '../core/types';
 import { api } from './api';
-import { Icon, Keypad, Modal, OnScreenKeyboard } from './parts';
+import { Icon, Keypad, Modal, OnScreenKeyboard, useTypedText } from './parts';
 
 export type AgeInfo = {
   method: 'scan' | 'manual_dob' | 'manager_override';
@@ -38,7 +39,7 @@ export function CashModal({ total, onClose, onComplete, error, busy }: {
         {bills.map((b) => <button key={b} className="btn" onClick={() => set(String(b))}>{formatCents(b).replace('.00', '')}</button>)}
       </div>
       <div className="display num" aria-label="Cash given">{formatCents(tendered)}</div>
-      <Keypad onKey={(k) => { if (k === '00') { press('0'); press('0'); } else press(k); }} doubleZero />
+      <Keypad onKey={(k) => { if (k === '00') { press('0'); press('0'); } else press(k); }} doubleZero onEnter={() => { if (change >= 0 && !busy) onComplete(tendered); }} />
       <div className={`change ${change < 0 ? 'short' : ''}`}>
         <span>{change < 0 ? 'Still needed' : 'Change due'}</span>
         <span className="num">{formatCents(Math.abs(change))}</span>
@@ -135,7 +136,7 @@ export function QtyModal({ current, onClose, onSet }: { current: number; onClose
   return (
     <Modal title="Quantity" onClose={onClose}>
       <div className="display num">{n}</div>
-      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} />
+      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} onEnter={() => { if (n >= 1) onSet(n); }} />
       <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={n < 1} onClick={() => onSet(n)}>Set quantity</button>
     </Modal>
   );
@@ -156,7 +157,7 @@ export function PinModal({ title, hint, onClose, onOk }: { title: string; hint: 
     <Modal title={title} onClose={onClose}>
       <div className="hint">{hint}</div>
       <div className="dots" aria-label={`${digits.length} digits entered`}>{Array.from({ length: Math.max(4, digits.length) }).map((_, i) => <i key={i} className={i < digits.length ? 'f' : ''} />)}</div>
-      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} />
+      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} onEnter={() => { if (digits.length >= 4) submit(); }} />
       {error && <div className="err">{error}</div>}
       <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={digits.length < 4} onClick={submit}>OK</button>
     </Modal>
@@ -233,25 +234,37 @@ export function DobModal({ onClose, onDone }: { onClose: () => void; onDone: (r:
     <Modal title="Birth date" onClose={onClose}>
       <div className="hint">Type month, day, and 4-digit year from the ID. Example: 0 7 1 5 1 9 9 0</div>
       <div className="display plain num">{shown}</div>
-      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} />
+      <Keypad onKey={(k) => (k === '00' ? undefined : press(k))} onEnter={() => { if (digits.length === 8) submit(); }} />
       {error && <div className="err">{error}</div>}
       <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={digits.length !== 8} onClick={submit}>Check age</button>
     </Modal>
   );
 }
 
-export function LinkModal({ code, items, onClose, onLink, error }: {
-  code: string; items: ItemDto[]; onClose: () => void; onLink: (itemId: number) => void; error: string;
+export type Lookup = { found: boolean; code: string; name: string; size: string | null; imageUrl: string | null; category: string | null; ageMin: number | null; source: string | null };
+
+export function LinkModal({ code, items, lookup, onClose, onLink, onNew, error }: {
+  code: string; items: ItemDto[]; lookup: Lookup | null | undefined; onClose: () => void; onLink: (itemId: number) => void; onNew: () => void; error: string;
 }) {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState<number | null>(null);
+  useTypedText({ onChar: (c) => setQ((s) => s + c), onBack: () => setQ((s) => s.slice(0, -1)), allowDigits: true });
   const matches = items.filter((i) => !i.hasBarcode && `${i.name} ${i.size ?? ''}`.toLowerCase().includes(q.toLowerCase())).slice(0, 5);
   return (
-    <Modal title="Link this barcode" onClose={onClose} wide>
+    <Modal title="New barcode" onClose={onClose} wide>
       <div style={{ padding: '10px 14px', borderRadius: 12, background: 'var(--warn-bg)', border: '2px solid var(--warn-line)', color: 'var(--warn-ink)' }}>
         <div className="hint" style={{ color: 'inherit', fontWeight: 600 }}>SCANNED, NOT IN THE SYSTEM YET</div>
         <div className="num" style={{ fontSize: 26, letterSpacing: '.04em' }}>{code}</div>
       </div>
+      <button className="pick" style={{ minHeight: 84, display: 'flex', alignItems: 'center', gap: 14, borderColor: 'var(--accent)', borderWidth: 2 }} onClick={onNew}>
+        {lookup?.imageUrl && <img src={lookup.imageUrl} alt="" style={{ width: 64, height: 64, objectFit: 'contain', borderRadius: 8, background: '#fff' }} />}
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
+          {lookup === undefined && <><b>Looking it up online…</b><small>Searching the open product database</small></>}
+          {lookup && lookup.found && <><b>Add as new item: {lookup.name}{lookup.size ? ` ${lookup.size}` : ''}</b><small>Found online{lookup.category ? ` · looks like ${lookup.category}` : ''} · tap, set the price, done</small></>}
+          {lookup !== undefined && !lookup?.found && <><b>Add as a new item</b><small>Not found online · type the name and price</small></>}
+        </span>
+      </button>
+      <div className="hint">Or link it to an item that is already in the system but has no barcode yet:</div>
       <div className="display plain" style={{ height: 52, fontSize: 20, justifyContent: 'flex-start', fontWeight: 400 }}>{q || <span style={{ color: 'var(--ink-3)' }}>Search for the item…</span>}</div>
       {matches.map((m) => (
         <button key={m.id} className={`pick ${sel === m.id ? 'on' : ''}`} onClick={() => setSel(m.id)}>
@@ -261,7 +274,62 @@ export function LinkModal({ code, items, onClose, onLink, error }: {
       {matches.length === 0 && <div className="hint">No items without a barcode match that search.</div>}
       <OnScreenKeyboard onChar={(c) => setQ((s) => s + c)} onBack={() => setQ((s) => s.slice(0, -1))} onClear={() => setQ('')} />
       {error && <div className="err">{error}</div>}
-      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={sel === null} onClick={() => sel !== null && onLink(sel)}>Save and add to ticket</button>
+      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={sel === null} onClick={() => sel !== null && onLink(sel)}>Link and add to ticket</button>
+    </Modal>
+  );
+}
+
+/** Adds a scanned item in seconds: name (prefilled from the lookup), price, tax group. */
+export function NewItemModal({ code, lookup, categories, authorities, onClose, onSave, error, busy }: {
+  code: string; lookup: Lookup | null; categories: string[]; authorities: Authority[]; onClose: () => void; error: string; busy: boolean;
+  onSave: (item: { name: string; size: string | null; priceCents: number; category: string; authorityId: number | null; ageMin: number | null; imageUrl: string | null }) => void;
+}) {
+  const [name, setName] = useState(lookup?.name ?? '');
+  const [kb, setKb] = useState(!lookup?.name);
+  useTypedText({ onChar: (c) => setName((s) => s + c), onBack: () => { if (kb) setName((s) => s.slice(0, -1)); }, allowDigits: kb }); // with the keypad showing, Backspace edits the price
+  const { digits, press } = useDigits(7);
+  const price = centsFromKeypadDigits(digits);
+  const cats = Array.from(new Set([...(lookup?.category ? [lookup.category] : []), ...categories])).slice(0, 12);
+  const [category, setCategory] = useState(lookup?.category ?? categories[0] ?? 'Grocery');
+  const guessAuth = (cat: string): number | null => {
+    const c = cat.toLowerCase();
+    const find = (re: RegExp) => authorities.find((a) => re.test(a.title.toLowerCase()))?.id ?? null;
+    if (/alcohol|beer|wine|liquor/.test(c)) return find(/alcohol/);
+    if (/tobacco|cig|vape/.test(c)) return find(/tobacco/);
+    if (/drink|food|snack|candy|beverage/.test(c)) return find(/food|drink/);
+    return find(/grocery|all/) ?? authorities[0]?.id ?? null;
+  };
+  const [authorityId, setAuthorityId] = useState<number | null>(guessAuth(lookup?.category ?? categories[0] ?? ''));
+  const ageMin = /alcohol|beer|wine|liquor|tobacco|cig|vape/.test(category.toLowerCase()) ? 21 : lookup?.ageMin ?? null;
+  const pickCat = (c: string) => { setCategory(c); setAuthorityId(guessAuth(c)); };
+  const ok = name.trim().length > 0 && price > 0;
+  const save = () => { if (ok && !busy) onSave({ name: name.trim(), size: lookup?.size ?? null, priceCents: price, category, authorityId, ageMin, imageUrl: lookup?.imageUrl ?? null }); };
+  return (
+    <Modal title="Add new item" onClose={onClose} wide>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+        {lookup?.imageUrl && <img src={lookup.imageUrl} alt="" style={{ width: 72, height: 72, objectFit: 'contain', borderRadius: 10, background: '#fff', border: '1px solid var(--line)' }} />}
+        <div style={{ flex: 1 }}>
+          <div className="field-label">NAME{lookup?.size ? ` · ${lookup.size}` : ''} · barcode {code}</div>
+          <div className="quick" style={{ gridTemplateColumns: '1fr auto' }}>
+            <div className="display plain" style={{ height: 52, fontSize: 20, justifyContent: 'flex-start', fontWeight: 600 }}>{name || <span style={{ color: 'var(--ink-3)' }}>Type the item name…</span>}</div>
+            <button className="btn" onClick={() => setKb(!kb)}><Icon name="keyboard" size={20} /></button>
+          </div>
+        </div>
+      </div>
+      {kb && <OnScreenKeyboard onChar={(c) => setName((s) => s + c)} onBack={() => setName((s) => s.slice(0, -1))} onClear={() => setName('')} onDone={() => setKb(false)} />}
+      <div className="field-label">CATEGORY</div>
+      <div className="chips">{cats.map((c) => <button key={c} className={`chip ${category === c ? 'on' : ''}`} onClick={() => pickCat(c)}>{c}</button>)}</div>
+      <div className="field-label">TAX</div>
+      <div className="chips">
+        {authorities.map((a) => <button key={a.id} className={`chip ${authorityId === a.id ? 'on' : ''}`} onClick={() => setAuthorityId(a.id)}>{a.title}</button>)}
+        <button className={`chip ${authorityId === null ? 'on' : ''}`} onClick={() => setAuthorityId(null)}>No tax</button>
+      </div>
+      {ageMin && <div className="hint">Age check: {ageMin}+ (ID required at the register).</div>}
+      <div className="field-label">PRICE</div>
+      <div className="display num" aria-label="Price">{formatCents(price)}</div>
+      {!kb && <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={save} />}
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={!ok || busy} onClick={save}>{busy ? 'Saving…' : 'Save and add to ticket'}</button>
     </Modal>
   );
 }

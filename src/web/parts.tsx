@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ButtonShape } from '../core/types';
 
 /** Shape icons shown on every one-click tile. */
@@ -48,8 +48,26 @@ export function Icon({ name, size = 24 }: { name: string; size?: number }) {
 }
 
 /** On-screen number pad. Reports keys: 0-9, "00", "back", "clear". */
-export function Keypad({ onKey, doubleZero = false }: { onKey: (k: string) => void; doubleZero?: boolean }) {
+export function Keypad({ onKey, onEnter, doubleZero = false }: { onKey: (k: string) => void; onEnter?: () => void; doubleZero?: boolean }) {
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'];
+  // A real keyboard works too: digits, Backspace, Escape (clear) and Enter.
+  const latest = useRef({ onKey, onEnter });
+  latest.current = { onKey, onEnter };
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return; // a text box has the keyboard
+      if (/^[0-9]$/.test(e.key)) latest.current.onKey(e.key);
+      else if (e.key === 'Backspace') latest.current.onKey('back');
+      else if (e.key === 'Escape') latest.current.onKey('clear');
+      else if (e.key === 'Enter') latest.current.onEnter?.();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
   return (
     <div className="keypad">
       {keys.map((k) => (
@@ -105,4 +123,27 @@ export function Modal({ title, children, onClose, wide }: { title: string; child
       </div>
     </div>
   );
+}
+
+/** Lets a real keyboard type into an on-screen text field (one that is not a browser input). */
+export function useTypedText(opts: { onChar: (c: string) => void; onBack: () => void; onEnter?: () => void; allowDigits?: boolean; enabled?: boolean }) {
+  const latest = useRef(opts);
+  latest.current = opts;
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      const o = latest.current;
+      if (o.enabled === false || e.ctrlKey || e.metaKey || e.altKey) return;
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+      if (e.key.length === 1) {
+        if (/^[0-9]$/.test(e.key) && !o.allowDigits) return; // digits belong to the keypad on this screen
+        o.onChar(e.key);
+      } else if (e.key === 'Backspace') o.onBack();
+      else if (e.key === 'Enter' && o.onEnter) o.onEnter();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
 }

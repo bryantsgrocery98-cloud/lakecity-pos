@@ -10,6 +10,7 @@ import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImpor
 import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
 import { listPrinters, listSerialPorts, pulseSerialDrawer, sendToPrinter } from './printer.js';
 import { createDisplay, listScreens, openCustomerWindow, type DisplayState } from './display.js';
+import { lookupBarcode } from './lookup.js';
 import { buildDayReport } from './reports.js';
 import type {
   AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
@@ -435,7 +436,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   const itemRow = (r: Record<string, any>) => ({
     id: r.id, name: r.name, size: r.size, priceCents: r.price_cents, costCents: r.cost_cents, category: r.category,
     authorityId: r.authority_id, ageMin: r.age_min, qtyOnHand: r.qty_on_hand, active: !!r.active, frequent: !!r.frequent,
-    color: r.color, imageVersion: r.image_version, barcodes: r.codes ? String(r.codes).split(' ') : [],
+    color: r.color, imageVersion: r.image_version, barcodes: r.codes ? String(r.codes).split(' ') : [], hasBarcode: !!r.codes,
   });
   const ITEM_SQL = `SELECT i.*, (SELECT GROUP_CONCAT(code, ' ') FROM barcodes b WHERE b.item_id = i.id) AS codes FROM items i`;
 
@@ -496,6 +497,30 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const r = db.prepare(`INSERT INTO items (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => v[c]));
     audit(db, String(b.cashier ?? ''), 'item_add', String(v.name));
     res.json(itemRow(db.prepare(`${ITEM_SQL} WHERE i.id = ?`).get(r.lastInsertRowid) as Record<string, any>));
+  }));
+
+  // Unknown barcode: ask the open product databases, then add the item with one price tap.
+  app.get('/api/lookup/:code', wrap(async (req, res) => {
+    const code = String(req.params.code);
+    if (!/^[0-9]{6,14}$/.test(code)) { res.json({ found: false, code, name: '', size: null, imageUrl: null, category: null, ageMin: null, source: null }); return; }
+    res.json(await lookupBarcode(code));
+  }));
+  app.post('/api/items/quick', wrap((req, res) => {
+    const b = req.body as ItemBody & { code?: string; imageUrl?: string | null };
+    if (!isManagerPin(db, b.pin)) throw new HttpError(403, 'A manager PIN is needed to add items.');
+    const code = String(b.code ?? '');
+    if (!/^[0-9A-Za-z\-]{4,64}$/.test(code)) throw new HttpError(400, 'That barcode looks wrong.');
+    if (db.prepare(`SELECT 1 FROM barcodes WHERE code = ?`).get(code)) throw new HttpError(409, 'That barcode is already linked to an item.');
+    const v = validateItem({ ...b, qtyOnHand: b.qtyOnHand ?? 0 }, false);
+    const cols = Object.keys(v);
+    const id = Number(db.transaction(() => {
+      const r = db.prepare(`INSERT INTO items (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => v[c]));
+      db.prepare(`INSERT INTO barcodes (code, item_id) VALUES (?, ?)`).run(code, Number(r.lastInsertRowid));
+      return r.lastInsertRowid;
+    })());
+    audit(db, String(b.cashier ?? ''), 'item_add', `${String(v.name)} (scanned ${code})`);
+    if (b.imageUrl && /^https?:\/\//.test(b.imageUrl)) fetchImportImages(db, imagesDir, [{ itemId: id, url: b.imageUrl }]).catch(() => undefined);
+    res.json(itemRow(db.prepare(`${ITEM_SQL} WHERE i.id = ?`).get(id) as Record<string, any>));
   }));
 
   app.post('/api/items/:id', wrap((req, res) => {
