@@ -1,7 +1,7 @@
 {
-  "version": "0.7.4",
-  "file": "lakecity-pos-0.7.4.zip",
-  "sha256": "7cf6e629035b2a662c0c6c5e8cddbb8a537cb4be0ce028374f6d693bcaf23fab",
-  "notes": "ID check now understands scanners set to 'driver license parsing' (ID:date|date|... lines).",
-  "builtAt": "2026-10-15T00:34:45.418Z"
+  "version": "0.7.5",
+  "file": "lakecity-pos-0.7.5.zip",
+  "sha256": "2688883aee5881230fa50df510a0b9524ce6cec29fe56323c2e575ab65d4d1f5",
+  "notes": "ID line: birth date found regardless of field order.",
+  "builtAt": "2026-10-15T00:39:16.748Z"
 }
