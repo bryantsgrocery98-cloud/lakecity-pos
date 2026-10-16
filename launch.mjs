@@ -60,6 +60,16 @@ function openBrowser() {
   } catch (e) { log(`Could not open the browser: ${e}`); }
 }
 
+// Ask the register to put the customer screen on the second monitor (it does nothing if that window is already open).
+function openCustomerScreen() {
+  if (process.env.POS_NO_BROWSER) return;
+  const req = http.request(`${url}/api/display/open`, { method: 'POST', headers: { 'content-type': 'application/json' }, timeout: 15000 }, (res) => {
+    let body = ''; res.on('data', (d) => { body += d; }); res.on('end', () => { try { log(`Customer screen: ${JSON.parse(body).message}`); } catch { /* fine */ } });
+  });
+  req.on('error', () => {}); req.on('timeout', () => req.destroy());
+  req.end('{}');
+}
+
 function alreadyRunning() {
   return new Promise((resolve) => {
     const req = http.get(`${url}/api/version`, { timeout: 1500 }, (res) => { res.resume(); resolve(res.statusCode === 200); });
@@ -92,9 +102,10 @@ function run() {
     else { log(`Register stopped (${code ?? 'signal'}).`); process.exit(code ?? 0); }
   });
   setTimeout(openBrowser, 2500);
+  setTimeout(openCustomerScreen, 6000);
 }
 
 alreadyRunning().then((running) => {
-  if (running) { log('Register is already running; opening the screen.'); openBrowser(); setTimeout(() => process.exit(0), 1500); }
+  if (running) { log('Register is already running; opening the screens.'); openBrowser(); openCustomerScreen(); setTimeout(() => process.exit(0), 4000); }
   else run();
 });

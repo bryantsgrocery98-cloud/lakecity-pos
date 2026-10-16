@@ -366,7 +366,7 @@ function CustomerScreenSettings({ pin }: { pin: string }) {
     try { await api('/api/display/settings', { pin, ...patch }); setCfg({ ...cfg, ...patch }); setMsg('Saved.'); } catch (e) { setMsg((e as Error).message); throw e; }
   };
   const open = async () => {
-    try { const r = await api<{ message: string }>('/api/display/open', {}); setMsg(r.message); setTimeout(load, 3000); } catch (e) { setMsg((e as Error).message); }
+    try { const r = await api<{ message: string }>('/api/display/open', { force: true }); setMsg(r.message); setTimeout(load, 3000); } catch (e) { setMsg((e as Error).message); }
   };
   const second = cfg.screens.filter((sc) => !sc.primary);
   return (

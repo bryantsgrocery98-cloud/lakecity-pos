@@ -684,6 +684,8 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   }));
   app.post('/api/display/open', wrap(async (req, res) => {
     const url = `http://localhost:${req.socket.localPort}/customer`;
+    if (display.clientCount() > 0 && !req.body?.force) { res.json({ message: 'The customer screen is already open.', alreadyOpen: true }); return; }
+    if (getSetting(db, 'customer_display', 'true') !== 'true' && !req.body?.force) { res.json({ message: 'The customer screen is turned off in settings.' }); return; }
     res.json({ message: await openCustomerWindow(extras.root ?? process.cwd(), url) });
   }));
   app.get('/api/display/welcome', (_req, res) => { res.json({ welcome: getSetting(db, 'display_welcome', 'Welcome!'), storeName: getSetting(db, 'store_name', '') }); });

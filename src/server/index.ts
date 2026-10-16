@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { getSetting, openDb } from './db.js';
 import { seedIfEmpty } from './seed.js';
-import { createDisplay, openCustomerWindow } from './display.js';
+import { createDisplay } from './display.js';
 import { createUpdater } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -28,8 +28,5 @@ app.listen(port, '127.0.0.1', () => {
   console.log(`POS ${version} running at http://localhost:${port}`);
   if (updateSource && process.env.POS_NO_UPDATE !== '1') updater.start();
   else console.log('[update] no update source set; auto-update is off.');
-  // Customer screen: opens by itself on the second monitor when one is plugged in.
-  if (process.platform === 'win32' && !process.env.POS_NO_BROWSER && getSetting(db, 'customer_display', 'true') === 'true') {
-    setTimeout(() => { openCustomerWindow(root, `http://localhost:${port}/customer`).then((m) => console.log(`[display] ${m}`)); }, 4000);
-  }
+  // The customer screen is opened by the launcher (launch.mjs) once the register is up, so a desktop icon brings up both screens.
 });
