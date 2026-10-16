@@ -1,7 +1,7 @@
 {
-  "version": "0.9.1",
-  "file": "lakecity-pos-0.9.1.zip",
-  "sha256": "0d035470d411cb904f2ae92f477bde83ad309374c44f64b12078bdedd9b0cfe6",
-  "notes": "Check cashing goes on the ticket; a CHECK button finishes the sale and shows the cash to hand over.",
-  "builtAt": "2026-10-15T02:00:24.953Z"
+  "version": "0.9.2",
+  "file": "lakecity-pos-0.9.2.zip",
+  "sha256": "f944fb8e1e784684c6ba8d78a18337dba0ad150e40d375b35ffd21e912df9021",
+  "notes": "Desktop icon opens the register and the customer screen together.",
+  "builtAt": "2026-10-16T23:44:36.268Z"
 }
