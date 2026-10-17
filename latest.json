@@ -1,7 +1,7 @@
 {
-  "version": "0.10.2",
-  "file": "lakecity-pos-0.10.2.zip",
-  "sha256": "f93e2e90e2f775ddc42254491a5de7a661543bbc3cf5796d1d708c239b9447e7",
-  "notes": "Shelf deals pre-set (Planters, Gurley's, Slim Jim, Herb's); Inventory → Deals view and 'Set a deal on several items'.",
-  "builtAt": "2026-10-17T17:26:22.429Z"
+  "version": "0.11.0",
+  "file": "lakecity-pos-0.11.0.zip",
+  "sha256": "fd57f137a77de3552938ae92153e9dd3083ef44441cd344648bae63a49ba0939",
+  "notes": "Customer tabs (TAB at checkout, Pay on Tab, Manage → Customer tabs). Check cashing fee is now a flat amount, default $1.",
+  "builtAt": "2026-10-17T17:39:26.507Z"
 }
