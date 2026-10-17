@@ -1,7 +1,7 @@
 {
-  "version": "0.12.0",
-  "file": "lakecity-pos-0.12.0.zip",
-  "sha256": "0bacf3ad47970fc7d897eb60a5860093e36eb25ad66daf6c8997b74039a907ad",
-  "notes": "Lottery winnings pay for the ticket; the rest comes back as cash (WINNINGS button).",
-  "builtAt": "2026-10-17T18:37:11.012Z"
+  "version": "0.12.1",
+  "file": "lakecity-pos-0.12.1.zip",
+  "sha256": "13fd48e73d11c1e0d9f7c83880392b274360f71cd4d23cd9e34a321ea2a08914",
+  "notes": "Quick buttons: add any item to a page from Inventory; Edit buttons mode on the register (rename, color, move, remove, pages).",
+  "builtAt": "2026-10-17T18:46:35.800Z"
 }
