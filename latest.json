@@ -1,7 +1,7 @@
 {
-  "version": "0.11.7",
-  "file": "lakecity-pos-0.11.7.zip",
-  "sha256": "9d441d745a3df62e9aba7e88b9b89e374fc8fc7e8d934d63306a386599afb4db",
-  "notes": "Lottery: one short screen, just type the amount.",
-  "builtAt": "2026-10-17T18:33:21.793Z"
+  "version": "0.12.0",
+  "file": "lakecity-pos-0.12.0.zip",
+  "sha256": "0bacf3ad47970fc7d897eb60a5860093e36eb25ad66daf6c8997b74039a907ad",
+  "notes": "Lottery winnings pay for the ticket; the rest comes back as cash (WINNINGS button).",
+  "builtAt": "2026-10-17T18:37:11.012Z"
 }
