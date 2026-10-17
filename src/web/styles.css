@@ -279,3 +279,7 @@ table.rep td:last-child { text-align: right; }
 .modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .modal-foot { flex: none; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line); }
 @media (max-height: 900px) { .modal-body { gap: 8px; } }
+
+.btn-cash { background: #15a34a; color: #fff; border-color: #15a34a; font-weight: 800; letter-spacing: .03em; }
+.btn-cash:disabled { background: #a9d9bb; border-color: #a9d9bb; color: #f4fbf6; }
+.btn-cash .cash-sign { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,.22); font-size: 20px; margin-right: 6px; }
