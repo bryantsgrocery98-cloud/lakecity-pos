@@ -1,7 +1,7 @@
 {
-  "version": "0.11.1",
-  "file": "lakecity-pos-0.11.1.zip",
-  "sha256": "5d3699fcc6eae7bc543a9382a075a6b54073c77626309c0cf59e0cb43bc8d2c9",
-  "notes": "Power menu: shutdown option removed.",
-  "builtAt": "2026-10-17T17:43:37.025Z"
+  "version": "0.11.2",
+  "file": "lakecity-pos-0.11.2.zip",
+  "sha256": "c001cd0db80042bda72b2866b3b383d6e01cc634adc277c71583e7c8538fa86a",
+  "notes": "Cash screen keeps Complete on screen; ID banner names the item; Settings → Things that ask for ID with one-tap fix.",
+  "builtAt": "2026-10-17T17:58:59.316Z"
 }
