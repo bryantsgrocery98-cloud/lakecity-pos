@@ -1,7 +1,7 @@
 {
-  "version": "0.12.1",
-  "file": "lakecity-pos-0.12.1.zip",
-  "sha256": "13fd48e73d11c1e0d9f7c83880392b274360f71cd4d23cd9e34a321ea2a08914",
-  "notes": "Quick buttons: add any item to a page from Inventory; Edit buttons mode on the register (rename, color, move, remove, pages).",
-  "builtAt": "2026-10-17T18:46:35.800Z"
+  "version": "0.12.2",
+  "file": "lakecity-pos-0.12.2.zip",
+  "sha256": "afbe02d03ebf5b08b9f7e8e508f39c755343cec747fa853455b9d7926ba9bb40",
+  "notes": "Quick buttons show the product picture; old one-click buttons are matched to their items.",
+  "builtAt": "2026-10-17T18:50:06.254Z"
 }
