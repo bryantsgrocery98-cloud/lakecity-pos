@@ -1,7 +1,7 @@
 {
-  "version": "0.10.0",
-  "file": "lakecity-pos-0.10.0.zip",
-  "sha256": "c1933a79a6b269a26521d5f388710c837747510a55a0e2ef77c5ab71d919aba1",
-  "notes": "Manage → Settings & Tax: tax groups (change %, add, remove), wrong-tax-group checker, check fee %, stock tracking on/off.",
-  "builtAt": "2026-10-17T17:12:36.684Z"
+  "version": "0.10.1",
+  "file": "lakecity-pos-0.10.1.zip",
+  "sha256": "16ebe8d620377f3357fc6248a11a2ece2f97d5d81b7a1bfaf94f996c9f2a325b",
+  "notes": "Only one register window: opening it again brings the existing one to the front.",
+  "builtAt": "2026-10-17T17:14:51.197Z"
 }
