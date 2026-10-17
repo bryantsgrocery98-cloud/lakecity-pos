@@ -15,6 +15,7 @@ export function CustomerDisplay() {
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    document.title = 'Customer Screen';
     fetch('/api/display/welcome').then((r) => r.json()).then(setStore).catch(() => undefined);
     let es: EventSource | null = null;
     let retry: number | undefined;

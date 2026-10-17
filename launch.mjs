@@ -42,22 +42,18 @@ function findBrowser() {
   return candidates.find((p) => p && fs.existsSync(p)) ?? null;
 }
 
+// Opens the register screen through the register itself: it knows whether one is already showing and, if so,
+// brings that one to the front instead of opening a second window.
 function openBrowser() {
   if (opened || process.env.POS_NO_BROWSER) return;
   opened = true;
-  try {
-    const exe = findBrowser();
-    if (exe) {
-      // App mode: no tabs or address bar, opens full screen on its own. F11 leaves full screen if ever needed.
-      // Set POS_WINDOWED=1 to open as a normal window instead.
-      const profile = path.join(root, 'data', 'browser-profile');
-      const size = process.env.POS_WINDOWED ? ['--start-maximized'] : ['--start-fullscreen'];
-      spawn(exe, [`--app=${url}`, ...size, '--no-first-run', '--disable-session-crashed-bubble', '--disable-features=TranslateUI', `--user-data-dir=${profile}`], { stdio: 'ignore', detached: true }).unref();
-    } else {
-      const cmd = isWin ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
-      spawn(cmd[0], cmd[1], { stdio: 'ignore', detached: true }).unref();
-    }
-  } catch (e) { log(`Could not open the browser: ${e}`); }
+  const body = JSON.stringify({ windowed: !!process.env.POS_WINDOWED });
+  const req = http.request(`${url}/api/register/open`, { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) }, timeout: 15000 }, (res) => {
+    let out = ''; res.on('data', (d) => { out += d; }); res.on('end', () => { try { log(`Register screen: ${JSON.parse(out).message}`); } catch { /* fine */ } });
+  });
+  req.on('error', (e) => { log(`Could not open the register screen: ${e.message}`); opened = false; });
+  req.on('timeout', () => req.destroy());
+  req.end(body);
 }
 
 // Ask the register to put the customer screen on the second monitor (it does nothing if that window is already open).
@@ -101,8 +97,10 @@ function run() {
     else if (code !== 0 && code !== null) { log(`Register stopped unexpectedly (${code}); restarting in 5s.`); setTimeout(run, 5000); }
     else { log(`Register stopped (${code ?? 'signal'}).`); process.exit(code ?? 0); }
   });
-  setTimeout(openBrowser, 2500);
-  setTimeout(openCustomerScreen, 6000);
+  // Open the screens once the register answers.
+  let tries = 0;
+  const whenUp = () => { alreadyRunning().then((up) => { if (up) { openBrowser(); setTimeout(openCustomerScreen, 3000); } else if (tries++ < 60) setTimeout(whenUp, 1000); }); };
+  setTimeout(whenUp, 1500);
 }
 
 alreadyRunning().then((running) => {

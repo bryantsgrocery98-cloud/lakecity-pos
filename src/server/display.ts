@@ -118,3 +118,36 @@ export function powerOffComputer(reboot: boolean): void {
   if (process.platform !== 'win32') return;
   spawn('shutdown.exe', [reboot ? '/r' : '/s', '/t', '3', '/f'], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
 }
+
+/** Brings the register window (title "Bryants Grocery POS" / the register page) to the front. Returns true if one was found. */
+export function focusRegisterWindow(): Promise<boolean> {
+  if (process.platform !== 'win32') return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const script = `
+Add-Type @"
+using System; using System.Runtime.InteropServices;
+public class W { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); }
+"@
+$p = Get-Process msedge, chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like '*Grocery POS*' } | Select-Object -First 1
+if ($p) { [W]::ShowWindow($p.MainWindowHandle, 9) | Out-Null; [W]::SetForegroundWindow($p.MainWindowHandle) | Out-Null; "FOUND" } else { "NONE" }`;
+    const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
+    let out = '';
+    ps.stdout.on('data', (d) => { out += d; });
+    const done = () => resolve(out.includes('FOUND'));
+    ps.on('close', done); ps.on('error', done);
+    setTimeout(done, 8000);
+  });
+}
+
+/** Opens the register window (app mode, full screen) with its own browser profile. */
+export function openRegisterWindow(root: string, url: string, windowed = false): string {
+  const exe = findBrowser();
+  const profile = path.join(root, 'data', 'browser-profile');
+  if (!exe) {
+    if (process.platform === 'win32') spawn('cmd', ['/c', 'start', '', url], { stdio: 'ignore', detached: true, windowsHide: true }).unref();
+    return 'Opened in the default browser.';
+  }
+  spawn(exe, [`--app=${url}`, windowed ? '--start-maximized' : '--start-fullscreen', '--no-first-run', '--disable-session-crashed-bubble', '--disable-features=TranslateUI', `--user-data-dir=${profile}`],
+    { stdio: 'ignore', detached: true, windowsHide: true }).unref();
+  return 'Register screen opened.';
+}

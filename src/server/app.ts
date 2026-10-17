@@ -9,7 +9,7 @@ import type { createUpdater } from './updater.js';
 import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
 import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
 import { listPrinters, listSerialPorts, pulseSerialDrawer, sendToPrinter } from './printer.js';
-import { closeOurWindows, createDisplay, listScreens, openCustomerWindow, powerOffComputer, type DisplayState } from './display.js';
+import { closeOurWindows, createDisplay, focusRegisterWindow, listScreens, openCustomerWindow, openRegisterWindow, powerOffComputer, type DisplayState } from './display.js';
 import { lookupBarcode, lookupBarcodeLight } from './lookup.js';
 import { buildDayReport } from './reports.js';
 import type {
@@ -761,6 +761,26 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
       out.push({ id: r.id, name: r.size ? `${r.name} ${r.size}` : r.name, category: r.category, current: cur, suggestedId: expect.a.id, suggested: expect.a.title, why: expect.why });
     }
     res.json({ items: out.slice(0, 500), total: out.length });
+  }));
+
+  // ---------- register window: only ever one ----------
+  // The register page holds this stream open while it is showing; a second launch focuses it instead of opening another.
+  const registerClients = new Set<express.Response>();
+  app.get('/api/register/events', (_req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Cache-Control', 'no-cache'); res.flushHeaders();
+    res.write('data: {"ok":true}\n\n');
+    registerClients.add(res);
+    const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* closed */ } }, 15000);
+    res.on('close', () => { clearInterval(ping); registerClients.delete(res); });
+  });
+  app.post('/api/register/open', wrap(async (req, res) => {
+    const url = `http://localhost:${req.socket.localPort}/`;
+    if (registerClients.size > 0) {
+      const focused = await focusRegisterWindow();
+      res.json({ message: focused ? 'The register is already open; brought it to the front.' : 'The register is already open.', alreadyOpen: true });
+      return;
+    }
+    res.json({ message: openRegisterWindow(extras.root ?? process.cwd(), url, !!req.body?.windowed) });
   }));
 
   // ---------- power: restart / close the register, restart or shut down the computer ----------

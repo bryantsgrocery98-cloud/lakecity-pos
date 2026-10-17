@@ -55,6 +55,14 @@ export function App() {
   const [updatePending, setUpdatePending] = useState<string | null>(null); // installed on disk, waiting for a restart
   const [updating, setUpdating] = useState<string | null>(null); // progress text while the Update button works
 
+  // Tell the register program this screen is showing (so a second launch focuses it instead of opening another).
+  useEffect(() => {
+    let es: EventSource | null = null; let retry: number | undefined;
+    const connect = () => { es = new EventSource('/api/register/events'); es.onerror = () => { es?.close(); retry = window.setTimeout(connect, 3000); }; };
+    connect();
+    return () => { es?.close(); window.clearTimeout(retry); };
+  }, []);
+
   // Tell the register program whether a ticket is open, so it never restarts for an update mid-sale.
   useEffect(() => {
     const open = lines.length > 0;
