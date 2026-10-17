@@ -490,21 +490,21 @@ export function App() {
           {!updateReady && (
             <button className="btn btn-sm" disabled={!!updating} style={{ background: updatePending ? '#1c4a3c' : 'transparent', color: updatePending ? '#bff0dc' : '#fff', borderColor: updatePending ? '#2f7a5c' : '#3a5266' }}
               onClick={() => runUpdate()}>
-              <Icon name="upload" size={18} /> {updating ?? (updatePending ? `Install ${updatePending}` : 'Update')}
+              <Icon name="upload" size={18} /> <span className="lbl">{updating ?? (updatePending ? `Install ${updatePending}` : 'Update')}</span>
             </button>
           )}
-          <span className="pill">Cashier: {user.name}</span>
+          <span className="pill"><span className="lbl">Cashier: </span>{user.name}</span>
           <button className="btn btn-sm" title="Refresh, restart or shut down" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setModal({ t: 'power' })}>
             <Icon name="power" size={20} />
           </button>
           {isMgr && <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setInventory(user.pin)}>
-            <Icon name="box" size={20} /> Inventory
+            <Icon name="box" size={20} /> <span className="lbl">Inventory</span>
           </button>}
           {isMgr && <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setManage(user.pin)}>
-            <Icon name="settings" size={20} /> Manage
+            <Icon name="settings" size={20} /> <span className="lbl">Manage</span>
           </button>}
           <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setModal({ t: 'today' })}>
-            <Icon name="report" size={20} /> Today
+            <Icon name="report" size={20} /> <span className="lbl">Today</span>
           </button>
           <button className="btn btn-sm" aria-label={sounds ? 'Turn sounds off' : 'Turn sounds on'} aria-pressed={sounds} style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => { setSoundsEnabled(!sounds); setSounds(!sounds); }}>
             <Icon name={sounds ? 'sound' : 'mute'} size={20} />

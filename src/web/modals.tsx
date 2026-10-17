@@ -523,6 +523,11 @@ export function PowerModal({ ticketOpen, onClose, onPick }: { ticketOpen: boolea
   return (
     <Modal title="Power" onClose={onClose}>
       <div className="hint">If something looks stuck, try these in order.</div>
+      <button className="btn btn-dark btn-block" style={{ minHeight: 58 }} onClick={() => {
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
+        else document.documentElement.requestFullscreen().catch(() => undefined);
+        onClose();
+      }}>{document.fullscreenElement ? 'Leave full screen' : 'Full screen (hides the window bar)'}</button>
       <button className="btn btn-primary btn-block" style={{ minHeight: 58 }} onClick={() => onPick('refresh')}>Refresh the screen</button>
       <button className="btn btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('restart')}>Restart the register</button>
       <button className="btn btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('quit')}>Close the register</button>
