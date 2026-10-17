@@ -23,3 +23,21 @@ describe('shelf deal presets', () => {
     expect(applyDealPresets(db)).toBe(0); // second run does nothing
   });
 });
+
+describe('linking quick buttons to items', () => {
+  it('ties a button to the one item with the same name, never to an ambiguous one', async () => {
+    const { linkButtonsToItems } = await import('./deal-presets.js');
+    const db = openDb(':memory:');
+    const item = db.prepare(`INSERT INTO items (name, size, price_cents, category, authority_id, age_min, color, frequent, qty_on_hand) VALUES (?, ?, ?, 'Snack', NULL, NULL, '#000', 0, 0)`);
+    item.run('Red Solo Cup', null, 25); item.run('Ice Bag', '10 lb', 249); item.run('Ice Bag', '20 lb', 399);
+    db.prepare(`INSERT INTO pages (name, pos) VALUES ('P', 0)`).run();
+    const btn = db.prepare(`INSERT INTO buttons (page_id, pos, name, price_cents, price_mode, item_id, authority_id, category, age_min, shape, fill, border, text_color) VALUES (1, ?, ?, ?, 'fixed', NULL, NULL, 'x', NULL, 'box', '#fff', '#000', '#000')`);
+    btn.run(0, 'RED SOLO CUP', 25); btn.run(1, 'Ice Bag', 249); btn.run(2, 'Ice Bag 20 lb', 399);
+    expect(linkButtonsToItems(db)).toBe(2);
+    const rows = db.prepare(`SELECT name, item_id FROM buttons ORDER BY pos`).all() as { name: string; item_id: number | null }[];
+    expect(rows[0]!.item_id).toBe(1);
+    expect(rows[1]!.item_id).toBeNull(); // two "Ice Bag" items: ambiguous
+    expect(rows[2]!.item_id).toBe(3);
+    expect(linkButtonsToItems(db)).toBe(0);
+  });
+});

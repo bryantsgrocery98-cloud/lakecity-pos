@@ -299,7 +299,7 @@ table.rep td:last-child { text-align: right; }
 .svc > span, .svc small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .svc svg { flex: none; }
 
-.tile-img { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; background: #fff; }
+.tile-img { width: 64px; height: 64px; object-fit: contain; border-radius: 10px; background: #fff; display: block; margin-bottom: 4px; }
 .tab-edit { outline: 2px dashed #7c8c99; outline-offset: -2px; }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .swatch { width: 44px; height: 44px; border-radius: 10px; border: 2px solid var(--line-2); }
