@@ -81,40 +81,20 @@ export function AskModal({ title, onClose, onAdd }: { title: string; onClose: ()
 }
 
 export function LotteryModal({ onClose, onAdd }: { onClose: () => void; onAdd: (qty: number, unitCents: number) => void }) {
-  const [unit, setUnit] = useState(100);
-  const [qty, setQty] = useState(1);
-  const [other, setOther] = useState(false);
-  const { digits, press } = useDigits(5);
-  const amount = other ? centsFromKeypadDigits(digits) : unit;
-  const presets = [100, 200, 300, 500, 1000, 2000];
+  // One simple screen: type the total lottery amount, done. Quick buttons for the common ones.
+  const { digits, press, set } = useDigits(6);
+  const amount = centsFromKeypadDigits(digits);
+  const presets = [100, 200, 500, 1000, 2000];
+  const go = () => { if (amount > 0) onAdd(1, amount); };
   return (
-    <Modal title="Lottery" onClose={onClose}>
-      <div className="amounts">
-        {presets.map((p) => (
-          <button key={p} className={`btn ${!other && unit === p ? 'on' : ''}`} onClick={() => { setOther(false); setUnit(p); }}>
-            {formatCents(p).replace('.00', '')}
-          </button>
-        ))}
+    <Modal title="Lottery" onClose={onClose} footer={
+      <button className="btn btn-primary btn-block" style={{ minHeight: 56, fontSize: 22 }} disabled={amount <= 0} onClick={go}>Add {formatCents(amount)} lottery</button>}>
+      <div className="quick" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+        {presets.map((p) => <button key={p} className="btn" onClick={() => set(String(p))}>{formatCents(p).replace('.00', '')}</button>)}
       </div>
-      <button className={`btn ${other ? 'btn-dark' : ''}`} onClick={() => setOther(true)}>Other amount…</button>
-      {other && (
-        <>
-          <div className="display num">{formatCents(amount)}</div>
-          <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero />
-        </>
-      )}
-      <div className="sub-label">HOW MANY TICKETS</div>
-      <div className="stepper">
-        <button className="btn" aria-label="Fewer tickets" onClick={() => setQty(Math.max(1, qty - 1))}>−</button>
-        <div className="val num">{qty}</div>
-        <button className="btn" aria-label="More tickets" onClick={() => setQty(Math.min(99, qty + 1))}>+</button>
-      </div>
-      <div className="summary">
-        <b>Lottery {qty} x {formatCents(amount)}</b>
-        <span className="num">{formatCents(amount * qty)}</span>
-        <div className="hint" style={{ color: 'inherit' }}>No tax. Counted separately from store sales.</div>
-      </div>
-      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={amount <= 0} onClick={() => onAdd(qty, amount)}>Add to ticket</button>
+      <div className="display num" aria-label="Lottery amount">{formatCents(amount)}</div>
+      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={go} />
+      <div className="hint">No tax. Counted separately from store sales.</div>
     </Modal>
   );
 }
