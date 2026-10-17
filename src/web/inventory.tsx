@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { centsFromKeypadDigits, formatCents } from '../core/money';
+import { dealLabel } from '../core/ticket';
+import { play } from './sounds';
 import type { Authority } from '../core/tax';
 import { api } from './api';
 import { Icon, Keypad, Modal, OnScreenKeyboard } from './parts';
@@ -20,7 +22,8 @@ export function InventoryPage({ authorities, cashier, pin, version, trackStock =
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [q, setQ] = useState('');
   const [kb, setKb] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'low' | 'nobc' | 'noimg' | 'off'>('all');
+  const [filter, setFilter] = useState<'all' | 'low' | 'nobc' | 'noimg' | 'deals' | 'off'>('all');
+  const [bulkDeal, setBulkDeal] = useState(false);
   const [cat, setCat] = useState('');
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [sel, setSel] = useState<InventoryItem | null>(null);
@@ -54,6 +57,7 @@ export function InventoryPage({ authorities, cashier, pin, version, trackStock =
       if (filter === 'low' && i.qtyOnHand > LOW_STOCK) return false;
       if (filter === 'nobc' && i.barcodes.length > 0) return false;
       if (filter === 'noimg' && i.imageVersion > 0) return false;
+      if (filter === 'deals' && !i.dealQty) return false;
       if (cat && i.category !== cat) return false;
       const hay = `${i.name} ${i.size ?? ''} ${i.category} ${i.barcodes.join(' ')}`.toLowerCase();
       return words.every((w) => hay.includes(w));
@@ -69,6 +73,7 @@ export function InventoryPage({ authorities, cashier, pin, version, trackStock =
     low: items.filter((i) => i.active && i.qtyOnHand <= LOW_STOCK).length,
     nobc: items.filter((i) => i.active && i.barcodes.length === 0).length,
     noimg: items.filter((i) => i.active && i.imageVersion === 0).length,
+    deals: items.filter((i) => i.active && !!i.dealQty).length,
   };
   const stockValue = items.filter((i) => i.active).reduce((s, i) => s + Math.max(0, i.qtyOnHand) * i.priceCents, 0);
 
@@ -103,6 +108,8 @@ export function InventoryPage({ authorities, cashier, pin, version, trackStock =
         {trackStock && <button className={`btn btn-sm ${filter === 'low' ? 'btn-dark' : ''}`} onClick={() => setFilter('low')}>Low stock ({counts.low})</button>}
         <button className={`btn btn-sm ${filter === 'nobc' ? 'btn-dark' : ''}`} onClick={() => setFilter('nobc')}>No barcode ({counts.nobc})</button>
         <button className={`btn btn-sm ${filter === 'noimg' ? 'btn-dark' : ''}`} onClick={() => setFilter('noimg')}>No picture ({counts.noimg})</button>
+        <button className={`btn btn-sm ${filter === 'deals' ? 'btn-dark' : ''}`} onClick={() => setFilter('deals')}>Deals ({counts.deals})</button>
+        <button className="btn btn-sm btn-primary" onClick={() => setBulkDeal(true)}>Set a deal on several items…</button>
         <button className={`btn btn-sm ${filter === 'off' ? 'btn-dark' : ''}`} onClick={() => setFilter('off')}>Hidden</button>
         <span className="inv-sep" />
         <button className={`btn btn-sm ${cat === '' ? 'btn-dark' : ''}`} onClick={() => setCat('')}>Every category</button>
@@ -118,7 +125,7 @@ export function InventoryPage({ authorities, cashier, pin, version, trackStock =
                 <button key={i.id} className={`inv-card ${sel?.id === i.id ? 'sel' : ''} ${trackStock && i.qtyOnHand <= LOW_STOCK ? 'low' : ''}`} onClick={() => { setSel(i); setAdding(false); }}>
                   <Thumb item={i} size={120} />
                   <div className="inv-card-name">{i.name}{i.size && <span className="hint"> {i.size}</span>}</div>
-                  <div className="inv-card-row"><span className="num" style={{ fontWeight: 700, fontSize: 19 }}>{formatCents(i.priceCents)}</span>{trackStock && <span className={`stock ${i.qtyOnHand <= 0 ? 'bad' : ''}`}>{i.qtyOnHand} in stock</span>}</div>
+                  <div className="inv-card-row"><span className="num" style={{ fontWeight: 700, fontSize: 19 }}>{formatCents(i.priceCents)}{i.dealQty && i.dealCents !== null && i.dealCents !== undefined && <span className="deal-tag">{dealLabel(i.dealQty, i.dealCents)}</span>}</span>{trackStock && <span className={`stock ${i.qtyOnHand <= 0 ? 'bad' : ''}`}>{i.qtyOnHand} in stock</span>}</div>
                   <div className="inv-card-tags">{i.ageMin && <span className="age-tag">{i.ageMin}+</span>}{i.barcodes.length === 0 && <span className="tag">no barcode</span>}{!i.active && <span className="tag">hidden</span>}</div>
                 </button>
               ))}
@@ -134,7 +141,7 @@ export function InventoryPage({ authorities, cashier, pin, version, trackStock =
                     <td><b>{i.name}</b>{i.size && <span className="hint"> {i.size}</span>}{i.ageMin && <span className="age-tag">{i.ageMin}+</span>}</td>
                     <td className="hint">{i.barcodes.join(', ') || '—'}</td>
                     <td>{i.category}</td><td>{authLabel(i.authorityId)}</td>
-                    <td className="num">{formatCents(i.priceCents)}</td>
+                    <td className="num">{formatCents(i.priceCents)}{i.dealQty && i.dealCents !== null && i.dealCents !== undefined && <span className="deal-tag">{dealLabel(i.dealQty, i.dealCents)}</span>}</td>
                     <td className="num hint">{i.costCents === null ? '—' : formatCents(i.costCents)}</td>
                     {trackStock && <td className="num">{i.qtyOnHand <= 0 ? <b style={{ color: 'var(--bad)' }}>{i.qtyOnHand}</b> : i.qtyOnHand}</td>}
                   </tr>
@@ -159,6 +166,7 @@ export function InventoryPage({ authorities, cashier, pin, version, trackStock =
         </aside>
       </div>
       {importing && <ImportModal pin={pin} cashier={cashier} onClose={() => setImporting(false)} onDone={() => { setImporting(false); load().then(() => onChanged()); }} />}
+      {bulkDeal && <BulkDealModal items={items.filter((i) => i.active)} pin={pin} cashier={cashier} onClose={() => { setBulkDeal(false); load().then(() => onChanged()); }} />}
       {finding && <FindImagesModal pin={pin} cashier={cashier} missing={items.filter((i) => i.active && i.imageVersion === 0 && i.barcodes.length > 0).length} onClose={() => { setFinding(false); load().then(() => onChanged()); }} onFinished={() => load().then(() => onChanged())} />}
     </div>
   );
@@ -525,6 +533,66 @@ function FindImagesModal({ pin, cashier, missing, onClose, onFinished }: { pin: 
       <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={!!job?.running || missing === 0} onClick={start}>{job?.running ? 'Working in the background…' : 'Start'}</button>
       <div className="hint">You can close this and keep using the register; it carries on by itself. Takes a few minutes for a full price book.</div>
       <button className="btn btn-block" onClick={onClose}>Close</button>
+    </Modal>
+  );
+}
+
+/** Pick several items (search + tick) and give them all the same deal, e.g. every Gurley's bag 2 for $2.00. */
+function BulkDealModal({ items, pin, cashier, onClose }: { items: InventoryItem[]; pin: string; cashier: string; onClose: () => void }) {
+  const [q, setQ] = useState('');
+  const [kb, setKb] = useState(true);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [dealQty, setDealQty] = useState(2);
+  const [dealCents, setDealCents] = useState(0);
+  const [num, setNum] = useState<null | 'qty' | 'price'>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = words.length === 0 ? [] : items.filter((i) => words.every((w) => `${i.name} ${i.size ?? ''}`.toLowerCase().includes(w))).slice(0, 40);
+  const toggle = (id: number) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const all = () => setPicked(new Set(matches.map((m) => m.id)));
+  const apply = async (clear = false) => {
+    setBusy(true); setMsg('');
+    let ok = 0;
+    for (const id of picked) {
+      try { await api(`/api/items/${id}`, { pin, cashier, dealQty: clear ? null : dealQty, dealCents: clear ? null : dealCents, reason: 'deal' }); ok++; } catch { /* keep going */ }
+    }
+    setBusy(false); play('done');
+    setMsg(clear ? `Deal removed from ${ok} items.` : `${dealLabel(dealQty, dealCents)} set on ${ok} items.`);
+    setPicked(new Set());
+  };
+  const ready = picked.size > 0 && dealQty >= 2 && dealCents > 0;
+  return (
+    <Modal title="Set a deal on several items" onClose={onClose} wide footer={<>
+      {msg && <div className="inv-msg" style={{ margin: 0 }}>{msg}</div>}
+      <div className="quick" style={{ gridTemplateColumns: '2fr 1fr' }}>
+        <button className="btn btn-primary" style={{ minHeight: 54 }} disabled={!ready || busy} onClick={() => apply(false)}>{busy ? 'Saving…' : `Set ${dealLabel(dealQty, dealCents)} on ${picked.size} item${picked.size === 1 ? '' : 's'}`}</button>
+        <button className="btn btn-danger" style={{ minHeight: 54 }} disabled={picked.size === 0 || busy} onClick={() => apply(true)}>Remove deal from {picked.size}</button>
+      </div>
+    </>}>
+      <div className="editor-label">1 · THE DEAL</div>
+      <div className="editor-row">
+        <Field label="How many" value={String(dealQty)} onEdit={() => setNum('qty')} />
+        <Field label="For" value={formatCents(dealCents)} onEdit={() => setNum('price')} />
+      </div>
+      <div className="editor-label">2 · FIND THE ITEMS (type part of the name, e.g. gurley)</div>
+      <div className="quick" style={{ gridTemplateColumns: '1fr auto auto' }}>
+        <div className="display plain" style={{ height: 48, fontSize: 20, justifyContent: 'flex-start', fontWeight: 500 }}>{q || <span style={{ color: 'var(--ink-3)' }}>Search…</span>}</div>
+        <button className="btn" onClick={() => setKb(!kb)}><Icon name="keyboard" size={20} /></button>
+        <button className="btn" disabled={matches.length === 0} onClick={all}>Tick all {matches.length}</button>
+      </div>
+      {kb && <OnScreenKeyboard onChar={(c) => setQ((s) => s + c)} onBack={() => setQ((s) => s.slice(0, -1))} onClear={() => setQ('')} onDone={() => setKb(false)} />}
+      <div className="chips">
+        {matches.map((m) => (
+          <button key={m.id} className={`chip ${picked.has(m.id) ? 'on' : ''}`} onClick={() => toggle(m.id)}>
+            {picked.has(m.id) ? '✓ ' : ''}{m.name}{m.size ? ` ${m.size}` : ''} · {formatCents(m.priceCents)}{m.dealQty && m.dealCents != null ? ` · ${dealLabel(m.dealQty, m.dealCents)}` : ''}
+          </button>
+        ))}
+        {words.length > 0 && matches.length === 0 && <span className="hint">No items match.</span>}
+      </div>
+      {picked.size > 0 && <div className="hint">{picked.size} ticked. Tick more by searching again; ticks are kept.</div>}
+      {num && <NumberModal title={num === 'qty' ? 'Deal: how many' : 'Deal: price for the group'} money={num === 'price'} current={num === 'qty' ? dealQty : dealCents}
+        onClose={() => setNum(null)} onOk={(v) => { if (num === 'qty') setDealQty(Math.max(2, v)); else setDealCents(v); setNum(null); }} />}
     </Modal>
   );
 }

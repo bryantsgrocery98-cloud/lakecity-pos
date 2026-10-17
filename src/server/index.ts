@@ -5,6 +5,7 @@ import { createApp } from './app.js';
 import { getSetting, openDb } from './db.js';
 import { seedIfEmpty } from './seed.js';
 import { createDisplay, listScreens, openCustomerWindow } from './display.js';
+import { applyDealPresets } from './deal-presets.js';
 import { createUpdater } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -16,6 +17,8 @@ const version = pkg.version;
 
 const db = openDb(dbFile);
 if (seedIfEmpty(db)) console.log('Loaded demo products. Demo PINs: cashier 1111, manager 2222, owner 3333.');
+const presetDeals = applyDealPresets(db);
+if (presetDeals) console.log(`[deals] set shelf deals on ${presetDeals} items`);
 
 // Where new builds are published. A Google Drive folder id, or a URL to latest.json.
 const updateSource = process.env.POS_UPDATE_SOURCE ?? getSetting(db, 'update_source', pkg.posUpdateSource ?? '');
