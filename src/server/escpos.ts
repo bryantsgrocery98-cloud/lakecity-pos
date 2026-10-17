@@ -67,6 +67,9 @@ export function receiptBytes(r: Receipt, opts: { kickDrawer?: boolean; cols?: nu
   } else if (r.payment.tender === 'check') {
     p.row('Check', formatCents(r.payment.tenderedCents ?? r.totals.totalCents));
     p.bold(true).row('Cash to customer', formatCents(r.payment.changeCents ?? 0)).bold(false);
+  } else if (r.payment.tender === 'tab') {
+    p.bold(true).row('ON TAB', r.payment.customerName ?? r.payment.reference ?? '').bold(false);
+    if (r.payment.tabBalanceCents !== null && r.payment.tabBalanceCents !== undefined) p.row('Tab balance now', formatCents(r.payment.tabBalanceCents));
   } else {
     p.row('Card', formatCents(r.payment.amountCents));
     if (r.payment.reference) p.row('Ref', r.payment.reference);
@@ -99,6 +102,7 @@ export type ZReport = {
   tenders: { tender: string; cents: number; count: number }[];
   lottery: { sales: number; payouts: number }; noSales: number;
   checks?: { count: number; tendered: number; cashOut: number };
+  tabs?: { charged: number; chargedCount: number; payments: { tender: string; cents: number; count: number }[]; paymentsTotal: number; owedTotal: number };
   items: { name: string; qty: number; cents: number }[];
 };
 
@@ -128,6 +132,11 @@ export function zReportBytes(z: ZReport, storeName: string, opts: { items?: bool
   p.row('Lottery sales', formatCents(z.lottery.sales));
   p.row('Lottery payouts', `-${formatCents(z.lottery.payouts)}`);
   if (z.checks && z.checks.count) { p.row(`Checks cashed (${z.checks.count})`, formatCents(z.checks.tendered)); p.row('Cash paid for checks', `-${formatCents(z.checks.cashOut)}`); }
+  if (z.tabs && (z.tabs.chargedCount || z.tabs.paymentsTotal)) {
+    p.row(`Charged to tabs (${z.tabs.chargedCount})`, formatCents(z.tabs.charged));
+    for (const t of z.tabs.payments) p.row(`Tab payments ${t.tender} (${t.count})`, `+${formatCents(t.cents)}`);
+    p.row('All tabs owed now', formatCents(z.tabs.owedTotal));
+  }
   p.row('No Sale opens', String(z.noSales));
   if (opts.items && z.items.length) {
     p.rule();

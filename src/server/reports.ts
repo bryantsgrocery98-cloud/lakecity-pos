@@ -23,6 +23,10 @@ export function buildDayReport(db: DB, workday: string, cashier: string, title: 
   const payouts = one<{ c: number }>(`SELECT COALESCE(SUM(amount_cents),0) c FROM cash_events WHERE type = 'lottery_payout' AND substr(ts,1,10) = ?`, workday).c;
   const noSales = one<{ n: number }>(`SELECT COUNT(*) n FROM cash_events WHERE type = 'no_sale' AND substr(ts,1,10) = ?`, workday).n;
   // Checks taken in and the cash handed back for them (so the drawer count works out).
+  // Tab payments received today (money in that is not a sale), and what was charged to tabs.
+  const tabPay = all<{ tender: string; cents: number; count: number }>(`SELECT tender, SUM(cents) cents, COUNT(*) count FROM tab_entries WHERE kind = 'payment' AND workday = ? GROUP BY tender`, workday);
+  const tabCharged = one<{ c: number; n: number }>(`SELECT COALESCE(SUM(cents),0) c, COUNT(*) n FROM tab_entries WHERE kind = 'charge' AND workday = ?`, workday);
+  const tabOwed = one<{ c: number }>(`SELECT COALESCE(SUM(CASE WHEN kind = 'payment' THEN -cents ELSE cents END),0) c FROM tab_entries`);
   const checks = one<{ n: number; tendered: number; cashOut: number }>(
     `SELECT COUNT(*) n, COALESCE(SUM(tendered_cents),0) tendered, COALESCE(SUM(change_cents),0) cashOut FROM payments WHERE tender = 'check' AND sale_id IN (${live})`, workday);
   const items = all<{ name: string; qty: number; cents: number }>(
@@ -32,8 +36,9 @@ export function buildDayReport(db: DB, workday: string, cashier: string, title: 
     title, workday, from: sales.from ?? '', to: sales.to ?? '', cashier,
     sales: { count: sales.n, subtotal: sales.subtotal, discount: sales.discount, tax: sales.tax, total: sales.total },
     voids: { count: voids.n, total: voids.total }, refunds: { count: refunds.n, total: refunds.total },
-    byCategory, byAuthority, tenders: tenders.map((t) => ({ ...t, tender: t.tender === 'cash' ? 'Cash' : t.tender === 'check' ? 'Checks cashed' : 'Card' })),
+    byCategory, byAuthority, tenders: tenders.map((t) => ({ ...t, tender: t.tender === 'cash' ? 'Cash' : t.tender === 'check' ? 'Checks cashed' : t.tender === 'tab' ? 'Charged to tabs' : 'Card' })),
     lottery: { sales: lotterySales, payouts }, noSales, items,
     checks: { count: checks.n, tendered: checks.tendered, cashOut: checks.cashOut },
+    tabs: { charged: tabCharged.c, chargedCount: tabCharged.n, payments: tabPay.map((t) => ({ tender: t.tender, cents: t.cents, count: t.count })), paymentsTotal: tabPay.reduce((a, t) => a + t.cents, 0), owedTotal: tabOwed.c },
   };
 }

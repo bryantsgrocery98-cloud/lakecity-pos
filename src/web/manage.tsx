@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { formatCents } from '../core/money';
+import { centsFromKeypadDigits, formatCents } from '../core/money';
+import type { CustomerDto } from '../core/types';
+import { TabPaymentModal } from './modals';
 import { api } from './api';
-import { Icon, Keypad, Modal, OnScreenKeyboard } from './parts';
+import { Icon, Keypad, Modal, OnScreenKeyboard, useTypedText } from './parts';
 import { play } from './sounds';
 
 type SaleRow = {
@@ -15,6 +17,7 @@ type DayReport = {
   byCategory: { category: string; qty: number; cents: number }[]; byAuthority: { title: string; cents: number }[];
   tenders: { tender: string; cents: number; count: number }[]; lottery: { sales: number; payouts: number }; noSales: number;
   checks?: { count: number; tendered: number; cashOut: number };
+  tabs?: { charged: number; chargedCount: number; payments: { tender: string; cents: number; count: number }[]; paymentsTotal: number; owedTotal: number };
   items: { name: string; qty: number; cents: number }[];
 };
 type PrinterCfg = { target: string; printReceipts: boolean; drawerKick: boolean; available: string[]; drawerPort: string; serialPorts: { port: string; name: string }[]; storeName: string; header: string; footer: string; showCashier: boolean };
@@ -22,7 +25,7 @@ type PrinterCfg = { target: string; printReceipts: boolean; drawerKick: boolean;
 const when = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 export function ManagePage({ pin, cashier, version, onClose }: { pin: string; cashier: string; version: string; onClose: () => void }) {
-  const [tab, setTab] = useState<'sales' | 'day' | 'printer' | 'settings' | 'updates'>('sales');
+  const [tab, setTab] = useState<'sales' | 'day' | 'customers' | 'printer' | 'settings' | 'updates'>('sales');
   return (
     <div className="inv">
       <header className="topbar">
@@ -34,6 +37,7 @@ export function ManagePage({ pin, cashier, version, onClose }: { pin: string; ca
       <div className="inv-filters" style={{ paddingTop: 12 }}>
         <button className={`btn ${tab === 'sales' ? 'btn-dark' : ''}`} onClick={() => setTab('sales')}>Sales, voids, refunds</button>
         <button className={`btn ${tab === 'day' ? 'btn-dark' : ''}`} onClick={() => setTab('day')}>Day report (X / Z)</button>
+        <button className={`btn ${tab === 'customers' ? 'btn-dark' : ''}`} onClick={() => setTab('customers')}>Customer tabs</button>
         <button className={`btn ${tab === 'printer' ? 'btn-dark' : ''}`} onClick={() => setTab('printer')}>Printer</button>
         <button className={`btn ${tab === 'settings' ? 'btn-dark' : ''}`} onClick={() => setTab('settings')}>Settings &amp; Tax</button>
         <button className={`btn ${tab === 'updates' ? 'btn-dark' : ''}`} onClick={() => setTab('updates')}>Updates</button>
@@ -41,6 +45,7 @@ export function ManagePage({ pin, cashier, version, onClose }: { pin: string; ca
       <div className="inv-body" style={{ display: 'block', overflowY: 'auto' }}>
         {tab === 'sales' && <SalesTab pin={pin} cashier={cashier} />}
         {tab === 'day' && <DayTab pin={pin} cashier={cashier} />}
+        {tab === 'customers' && <CustomersTab pin={pin} cashier={cashier} />}
         {tab === 'printer' && <PrinterTab pin={pin} />}
         {tab === 'settings' && <SettingsTab pin={pin} cashier={cashier} />}
         {tab === 'updates' && <UpdatesTab cashier={cashier} version={version} />}
@@ -222,6 +227,11 @@ function DayTab({ pin, cashier }: { pin: string; cashier: string }) {
             {r.checks && r.checks.count > 0 && <>
               <Row l={`Checks cashed (${r.checks.count})`} v={formatCents(r.checks.tendered)} />
               <Row l="Cash paid out for checks" v={`-${formatCents(r.checks.cashOut)}`} />
+            </>}
+            {r.tabs && (r.tabs.chargedCount > 0 || r.tabs.paymentsTotal > 0) && <>
+              <Row l={`Charged to tabs (${r.tabs.chargedCount})`} v={formatCents(r.tabs.charged)} />
+              {r.tabs.payments.map((t) => <Row key={t.tender} l={`Tab payments by ${t.tender} (${t.count})`} v={`+${formatCents(t.cents)}`} />)}
+              <Row l="All tabs owed now" v={formatCents(r.tabs.owedTotal)} />
             </>}
             <Row l="No Sale opens" v={String(r.noSales)} />
           </tbody></table>
@@ -431,7 +441,7 @@ function UpdatesTab({ cashier, version }: { cashier: string; version: string }) 
 // ---------- settings & tax ----------
 
 type AuthRow = { id: number; title: string; type: 'tax' | 'fee'; rateBp: number | null; flatCents: number | null; inUse: number };
-type Settings = { authorities: AuthRow[]; checkFeeBp: number; trackStock: boolean; scanIdOnly: boolean };
+type Settings = { authorities: AuthRow[]; checkFeeCents: number; trackStock: boolean; scanIdOnly: boolean };
 type TaxIssue = { id: number; name: string; category: string; current: string; suggestedId: number | null; suggested: string; why: string };
 
 function pctText(bp: number) { return bp % 100 === 0 ? `${bp / 100}%` : `${(bp / 100).toFixed(2)}%`; }
@@ -493,9 +503,10 @@ function SettingsTab({ pin, cashier }: { pin: string; cashier: string }) {
 
       <div className="editor-label">CHECK CASHING</div>
       <div className="field">
-        <span className="field-label" style={{ flex: 1 }}>Fee charged on cashed checks</span>
-        <span className="field-value num" style={{ fontWeight: 700 }}>{pctText(st.checkFeeBp)}</span>
-        <button className="btn btn-sm" onClick={() => setEdit({ id: -1, title: 'Check cashing fee', rateBp: st.checkFeeBp })}>Change</button>
+        <span className="field-label" style={{ flex: 1 }}>Usual fee for cashing a check (the cashier can change it per check)</span>
+        <div className="chips">
+          {[0, 100, 200, 300, 500].map((c) => <button key={c} className={`chip ${st.checkFeeCents === c ? 'on' : ''}`} onClick={() => save({ checkFeeCents: c })}>{c === 0 ? 'No fee' : formatCents(c)}</button>)}
+        </div>
       </div>
 
       <div className="editor-label">STOCK</div>
@@ -510,7 +521,7 @@ function SettingsTab({ pin, cashier }: { pin: string; cashier: string }) {
       </div>
 
       {edit && <RateModal edit={edit} onClose={() => setEdit(null)} onChange={setEdit}
-        onSave={() => { if (edit.id === -1) { save({ checkFeeBp: edit.rateBp }); setEdit(null); } else saveAuth(); }} />}
+        onSave={() => saveAuth()} />}
     </div>
   );
 }
@@ -542,6 +553,127 @@ function RateModal({ edit, onClose, onChange, onSave }: { edit: { id: number | n
       <div className="field-label">PERCENT — type it in hundredths: 8 0 0 = 8%, 1 0 0 = 1%, 8 5 0 = 8.5%</div>
       <div className="display num">{pctText(bp)}</div>
       {!kb && <Keypad onKey={press} onEnter={onSave} />}
+    </Modal>
+  );
+}
+
+// ---------- customer tabs ----------
+
+type TabEntry = { id: number; ts: string; kind: 'charge' | 'payment' | 'adjust'; cents: number; receiptNo: string | null; tender: string | null; cashier: string; note: string | null };
+
+function CustomersTab({ pin, cashier }: { pin: string; cashier: string }) {
+  const [list, setList] = useState<CustomerDto[]>([]);
+  const [q, setQ] = useState('');
+  const [kb, setKb] = useState(false);
+  const [sel, setSel] = useState<CustomerDto | null>(null);
+  const [hist, setHist] = useState<TabEntry[]>([]);
+  const [msg, setMsg] = useState('');
+  const [paying, setPaying] = useState(false);
+  const [adjust, setAdjust] = useState<null | 'forgive' | 'add'>(null);
+  const [editing, setEditing] = useState(false);
+  const load = () => api<CustomerDto[]>('/api/customers?all=1').then((l) => { setList(l); if (sel) setSel(l.find((c) => c.id === sel.id) ?? null); }).catch((e: Error) => setMsg(e.message));
+  useEffect(() => { load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { if (sel) api<TabEntry[]>(`/api/customers/${sel.id}/history`).then(setHist).catch(() => setHist([])); }, [sel?.id, sel?.balanceCents]);
+  useTypedText({ onChar: (c) => setQ((s) => s + c), onBack: () => setQ((s) => s.slice(0, -1)), allowDigits: true, enabled: !paying && !adjust && !editing });
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = list.filter((c) => c.active && words.every((w) => `${c.name} ${c.phone ?? ''}`.toLowerCase().includes(w)));
+  const owed = list.filter((c) => c.active).reduce((s, c) => s + c.balanceCents, 0);
+  const add = async () => {
+    const name = q.trim(); if (!name) return;
+    try { const c = await api<CustomerDto>('/api/customers', { cashier, name }); setQ(''); await load(); setSel(c); setMsg(`${c.name} added.`); } catch (e) { setMsg((e as Error).message); }
+  };
+  const kindLabel = (e: TabEntry) => e.kind === 'charge' ? `Charged · receipt ${e.receiptNo ?? ''}` : e.kind === 'payment' ? `Paid by ${e.tender}` : (e.cents < 0 ? 'Forgiven' : 'Added') + (e.note ? ` · ${e.note}` : '');
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.2fr)', gap: 16 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {msg && <div className="inv-msg" style={{ margin: 0 }}>{msg}</div>}
+        <div className="field"><span className="field-label">All tabs owed</span><span className="field-value num" style={{ fontWeight: 800, fontSize: 24 }}>{formatCents(owed)}</span></div>
+        <div className="quick" style={{ gridTemplateColumns: '1fr auto auto' }}>
+          <div className="display plain" style={{ height: 48, fontSize: 18, justifyContent: 'flex-start', fontWeight: 500 }}>{q || <span style={{ color: 'var(--ink-3)' }}>Search or type a new name…</span>}</div>
+          <button className="btn" onClick={() => setKb(!kb)}><Icon name="keyboard" size={20} /></button>
+          <button className="btn btn-primary" disabled={!q.trim() || shown.some((c) => c.name.toLowerCase() === q.trim().toLowerCase())} onClick={add}>Add</button>
+        </div>
+        {kb && <OnScreenKeyboard onChar={(c) => setQ((s) => s + c)} onBack={() => setQ((s) => s.slice(0, -1))} onClear={() => setQ('')} onDone={() => setKb(false)} />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '60vh', overflowY: 'auto' }}>
+          {shown.map((c) => (
+            <button key={c.id} className={`pick ${sel?.id === c.id ? 'on' : ''}`} onClick={() => setSel(c)}>
+              <b style={{ display: 'flex', justifyContent: 'space-between' }}><span>{c.name}</span><span className="num" style={{ color: c.balanceCents > 0 ? 'var(--bad)' : 'var(--accent)' }}>{formatCents(c.balanceCents)}</span></b>
+              <small>{c.phone ?? ''}{c.lastAt ? ` · last ${when(c.lastAt)}` : ' · nothing yet'}</small>
+            </button>
+          ))}
+          {shown.length === 0 && <div className="hint">{list.length === 0 ? 'No customers yet. Type a name and tap Add.' : 'No one matches.'}</div>}
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {!sel && <div className="hint">Tap a customer to see their tab, take a payment, or change their details.</div>}
+        {sel && <>
+          <div className="field"><span className="field-label" style={{ fontSize: 20 }}>{sel.name}<small style={{ display: 'block', fontWeight: 400, color: 'var(--ink-3)' }}>{sel.phone ?? 'no phone'}{sel.note ? ` · ${sel.note}` : ''}</small></span>
+            <span className="field-value num" style={{ fontWeight: 800, fontSize: 28, color: sel.balanceCents > 0 ? 'var(--bad)' : 'var(--accent)' }}>{formatCents(sel.balanceCents)}</span></div>
+          <div className="quick" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <button className="btn btn-primary" disabled={sel.balanceCents <= 0} onClick={() => setPaying(true)}>Take a payment</button>
+            <button className="btn" onClick={() => setAdjust('forgive')}>Forgive / write off</button>
+            <button className="btn" onClick={() => setEditing(true)}>Edit details</button>
+            <button className="btn btn-danger" disabled={sel.balanceCents !== 0} title={sel.balanceCents !== 0 ? 'Settle the tab first' : ''}
+              onClick={async () => { try { await api(`/api/customers/${sel.id}`, { pin, cashier, active: false }); setSel(null); load(); } catch (e) { setMsg((e as Error).message); } }}>Remove</button>
+          </div>
+          <div className="editor-label">HISTORY</div>
+          <table className="rep"><tbody>
+            {hist.map((e) => (
+              <tr key={e.id}><td>{when(e.ts)}</td><td>{kindLabel(e)}</td><td className="hint">{e.cashier}</td>
+                <td className="num" style={{ color: e.kind === 'payment' || e.cents < 0 ? 'var(--accent)' : 'inherit' }}>{e.kind === 'payment' ? '−' : e.cents < 0 ? '−' : '+'}{formatCents(Math.abs(e.cents))}</td></tr>
+            ))}
+            {hist.length === 0 && <tr><td className="hint">Nothing on this tab yet.</td></tr>}
+          </tbody></table>
+        </>}
+      </div>
+      {paying && sel && <TabPaymentModal customer={sel} cashier={cashier} onClose={() => setPaying(false)} onDone={(bal) => { setPaying(false); setMsg(`Payment taken. ${sel.name} now owes ${formatCents(bal)}.`); load(); }} />}
+      {adjust && sel && <AdjustModal customer={sel} mode={adjust} pin={pin} cashier={cashier} onClose={() => setAdjust(null)} onDone={(bal) => { setAdjust(null); setMsg(`Done. ${sel.name} now owes ${formatCents(bal)}.`); load(); }} />}
+      {editing && sel && <CustomerEditModal customer={sel} pin={pin} cashier={cashier} onClose={() => setEditing(false)} onDone={() => { setEditing(false); load(); }} />}
+    </div>
+  );
+}
+
+function AdjustModal({ customer, mode, pin, cashier, onClose, onDone }: { customer: CustomerDto; mode: 'forgive' | 'add'; pin: string; cashier: string; onClose: () => void; onDone: (bal: number) => void }) {
+  const [digits, setDigits] = useState('');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const cents = centsFromKeypadDigits(digits);
+  const press = (k: string) => { if (k === 'clear') setDigits(''); else if (k === 'back') setDigits((d) => d.slice(0, -1)); else setDigits((d) => (d + k).replace(/^0+(?=\d)/, '').slice(0, 8)); };
+  useTypedText({ onChar: (c) => setNote((s) => s + c), onBack: () => setNote((s) => s.slice(0, -1)), allowDigits: false });
+  const go = async () => {
+    try { const r = await api<{ balanceCents: number }>(`/api/customers/${customer.id}/adjust`, { pin, cashier, cents: mode === 'forgive' ? -cents : cents, note }); onDone(r.balanceCents); }
+    catch (e) { setError((e as Error).message); }
+  };
+  return (
+    <Modal title={mode === 'forgive' ? `Forgive part of ${customer.name}'s tab` : `Add to ${customer.name}'s tab`} onClose={onClose} footer={<>
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 54 }} disabled={cents <= 0 || !note.trim()} onClick={go}>{mode === 'forgive' ? 'Forgive' : 'Add'} {formatCents(cents)}</button>
+    </>}>
+      <div className="display num">{formatCents(cents)}</div>
+      <Keypad onKey={press} doubleZero />
+      <div className="field-label">REASON (type on the keyboard)</div>
+      <div className="display plain" style={{ height: 44, fontSize: 18, justifyContent: 'flex-start', fontWeight: 500 }}>{note || <span style={{ color: 'var(--ink-3)' }}>e.g. written off, typed wrong</span>}</div>
+      <div className="hint">Logged with your name. {mode === 'forgive' ? 'Lowers what they owe without any money changing hands.' : 'Raises what they owe (an old balance from the paper book, for example).'}</div>
+    </Modal>
+  );
+}
+
+function CustomerEditModal({ customer, pin, cashier, onClose, onDone }: { customer: CustomerDto; pin: string; cashier: string; onClose: () => void; onDone: () => void }) {
+  const [name, setName] = useState(customer.name);
+  const [phone, setPhone] = useState(customer.phone ?? '');
+  const [note, setNote] = useState(customer.note ?? '');
+  const [which, setWhich] = useState<'name' | 'phone' | 'note'>('name');
+  const [error, setError] = useState('');
+  const setter = which === 'name' ? setName : which === 'phone' ? setPhone : setNote;
+  useTypedText({ onChar: (c) => setter((s) => s + c), onBack: () => setter((s) => s.slice(0, -1)), allowDigits: true });
+  const save = async () => { try { await api(`/api/customers/${customer.id}`, { pin, cashier, name, phone, note }); onDone(); } catch (e) { setError((e as Error).message); } };
+  const Row = ({ k, label, v }: { k: 'name' | 'phone' | 'note'; label: string; v: string }) => (
+    <button className={`pick ${which === k ? 'on' : ''}`} onClick={() => setWhich(k)}><small>{label}</small><b>{v || '—'}</b></button>
+  );
+  return (
+    <Modal title="Customer details" onClose={onClose} footer={<>{error && <div className="err">{error}</div>}<button className="btn btn-primary btn-block" style={{ minHeight: 54 }} disabled={!name.trim()} onClick={save}>Save</button></>}>
+      <Row k="name" label="Name" v={name} /><Row k="phone" label="Phone" v={phone} /><Row k="note" label="Note" v={note} />
+      <OnScreenKeyboard onChar={(c) => setter((s) => s + c)} onBack={() => setter((s) => s.slice(0, -1))} onClear={() => setter('')} />
     </Modal>
   );
 }

@@ -46,8 +46,8 @@ export type SettingsDto = {
   warnQty: number;
   warnTotalCents: number;
   scanIdOnly: boolean;
-  /** Check-cashing fee in basis points (100 = 1%). */
-  checkFeeBp: number;
+  /** Default check-cashing fee, in cents (the cashier can change it per check). */
+  checkFeeCents: number;
   /** Whether stock counts are shown and kept. */
   trackStock: boolean;
 };
@@ -68,6 +68,8 @@ export type SaleLineInput = {
   buttonId?: number;
   /** For service lines: which service. */
   service?: 'gas' | 'check_fee';
+  /** For a check-cashing fee line: the amount of the check being cashed. */
+  baseCents?: number;
   qty: number;
   /** Only used for ask-price and lottery lines. The server prices everything else. */
   unitCents?: number;
@@ -83,7 +85,7 @@ export type SaleInput = {
   cashier: string;
   discountPct: number;
   lines: SaleLineInput[];
-  payment: { tender: 'cash' | 'card' | 'check'; tenderedCents?: number; reference?: string };
+  payment: { tender: 'cash' | 'card' | 'check' | 'tab'; tenderedCents?: number; reference?: string; customerId?: number };
   ageCheck?: AgeCheckInput;
 };
 
@@ -94,7 +96,7 @@ export type Receipt = {
   store: StoreDto;
   lines: { name: string; qty: number; unitCents: number; grossCents: number; discountCents: number }[];
   totals: Totals;
-  payment: { tender: 'cash' | 'card' | 'check'; amountCents: number; tenderedCents: number | null; changeCents: number | null; reference: string | null };
+  payment: { tender: 'cash' | 'card' | 'check' | 'tab'; amountCents: number; tenderedCents: number | null; changeCents: number | null; reference: string | null; customerName?: string | null; tabBalanceCents?: number | null };
 };
 
 export type HoldDto = {
@@ -105,3 +107,5 @@ export type HoldDto = {
   discountPct: number;
   lines: unknown[];
 };
+
+export type CustomerDto = { id: number; name: string; phone: string | null; note: string | null; balanceCents: number; lastAt: string | null; active: boolean };

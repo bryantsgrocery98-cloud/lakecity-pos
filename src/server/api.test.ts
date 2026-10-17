@@ -294,17 +294,17 @@ describe('gas and check cashing', () => {
     expect(g.lines[0]!.name).toBe('Gas');
     expect(g.totals.totalCents).toBe(2500);
 
-    // $500 check, 1% fee: fee $5.00 on the ticket, $495.00 cash to the customer
-    const chk = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'check_fee', qty: 1, unitCents: 50000 }], payment: { tender: 'check', tenderedCents: 50000 } });
+    // $500 check, $1 fee: fee on the ticket, $499.00 cash to the customer
+    const chk = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'check_fee', qty: 1, unitCents: 100, baseCents: 50000 }], payment: { tender: 'check', tenderedCents: 50000 } });
     expect(chk.status).toBe(200);
     const c = (await chk.json()) as Receipt;
-    expect(c.totals.totalCents).toBe(500);
-    expect(c.lines[0]!.name).toContain('1%');
+    expect(c.totals.totalCents).toBe(100);
+    expect(c.lines[0]!.name).toContain('$500.00');
     expect(c.payment.tender).toBe('check');
-    expect(c.payment.changeCents).toBe(49500);
+    expect(c.payment.changeCents).toBe(49900);
 
     // a check too small for the ticket is refused
-    const bad = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'check_fee', qty: 1, unitCents: 100 }, { kind: 'item', itemId: item('Cola').id, qty: 1 }], payment: { tender: 'check', tenderedCents: 100 } });
+    const bad = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'check_fee', qty: 1, unitCents: 100, baseCents: 100 }, { kind: 'item', itemId: item('Cola').id, qty: 1 }], payment: { tender: 'check', tenderedCents: 100 } });
     expect(bad.status).toBe(400);
 
     const day = (await (await fetch(base + '/api/reports/day')).json()) as { checks: { count: number; tendered: number; cashOut: number }; byCategory: { category: string; cents: number }[] };
@@ -343,12 +343,12 @@ describe('settings and tax groups', () => {
     expect(dup.status).toBe(409);
     const del = await post(`/api/authorities/${id}/delete`, { pin: '2222', cashier: 'Mgr' });
     expect(del.status).toBe(200);
-    const fee = await post('/api/settings', { pin: '2222', cashier: 'Mgr', checkFeeBp: 150, trackStock: false });
+    const fee = await post('/api/settings', { pin: '2222', cashier: 'Mgr', checkFeeCents: 200, trackStock: false });
     expect(fee.status).toBe(200);
-    const st2 = (await (await fetch(base + '/api/settings')).json()) as { checkFeeBp: number; trackStock: boolean };
-    expect(st2.checkFeeBp).toBe(150);
+    const st2 = (await (await fetch(base + '/api/settings')).json()) as { checkFeeCents: number; trackStock: boolean };
+    expect(st2.checkFeeCents).toBe(200);
     expect(st2.trackStock).toBe(false);
-    await post('/api/settings', { pin: '2222', checkFeeBp: 100, trackStock: true });
+    await post('/api/settings', { pin: '2222', checkFeeCents: 100, trackStock: true });
 
     // put a beer under Food and Drink; the checker should flag it
     const beer = boot.items.find((i) => i.name === 'Light Lager')!;
@@ -359,5 +359,38 @@ describe('settings and tax groups', () => {
     const flagged = chk.items.find((x) => x.id === beer.id);
     expect(flagged?.suggestedId).toBe(alcohol.id);
     await post(`/api/items/${beer.id}`, { pin: '2222', cashier: 'Mgr', authorityId: alcohol.id });
+  });
+});
+
+describe('customer tabs', () => {
+  it('charges a taxed sale to a tab, takes an untaxed payment, keeps the balance right', async () => {
+    const c = (await (await post('/api/customers', { cashier: 'Dee', name: 'Mr. Johnson', phone: '843-555-0100' })).json()) as { id: number; balanceCents: number };
+    expect(c.balanceCents).toBe(0);
+    const sale = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'item', itemId: item('Cola').id, qty: 2 }], payment: { tender: 'tab', customerId: c.id } });
+    expect(sale.status).toBe(200);
+    const rc = (await sale.json()) as Receipt;
+    expect(rc.payment.tender).toBe('tab');
+    expect(rc.payment.customerName).toBe('Mr. Johnson');
+    expect(rc.totals.taxCents).toBeGreaterThan(0);
+    expect(rc.payment.tabBalanceCents).toBe(rc.totals.totalCents);
+    // partial payment, no tax involved
+    const pay = await post(`/api/customers/${c.id}/payment`, { cashier: 'Dee', cents: 100, tender: 'cash' });
+    expect(pay.status).toBe(200);
+    expect(((await pay.json()) as { balanceCents: number }).balanceCents).toBe(rc.totals.totalCents - 100);
+    const list = (await (await fetch(base + '/api/customers')).json()) as { id: number; balanceCents: number }[];
+    expect(list.find((x) => x.id === c.id)!.balanceCents).toBe(rc.totals.totalCents - 100);
+    const hist = (await (await fetch(base + `/api/customers/${c.id}/history`)).json()) as { kind: string }[];
+    expect(hist.map((h) => h.kind)).toEqual(['payment', 'charge']);
+    // forgive the rest (manager)
+    const adj = await post(`/api/customers/${c.id}/adjust`, { pin: '2222', cashier: 'Mgr', cents: -(rc.totals.totalCents - 100), note: 'written off' });
+    expect(((await adj.json()) as { balanceCents: number }).balanceCents).toBe(0);
+    // the day report shows the charge and the payment separately
+    const day = (await (await fetch(base + '/api/reports/day')).json()) as { tabs: { charged: number; paymentsTotal: number } ; tenders: { tender: string; cents: number }[] };
+    expect(day.tabs.charged).toBeGreaterThanOrEqual(rc.totals.totalCents);
+    expect(day.tabs.paymentsTotal).toBeGreaterThanOrEqual(100);
+    expect(day.tenders.some((t) => t.tender === 'Charged to tabs')).toBe(true);
+    // unknown customer is refused
+    const bad = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'item', itemId: item('Cola').id, qty: 1 }], payment: { tender: 'tab', customerId: 999999 } });
+    expect(bad.status).toBe(400);
   });
 });

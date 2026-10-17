@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { formatCents, centsFromKeypadDigits } from '../core/money';
-import { checkFeeCents } from '../core/ticket';
 import { evaluateBirthDate, parseAamvaDate } from '../core/aamva';
 import type { Authority } from '../core/tax';
-import type { HoldDto, ItemDto, Receipt } from '../core/types';
+import type { CustomerDto, HoldDto, ItemDto, Receipt } from '../core/types';
 import { api } from './api';
+import { play } from './sounds';
 import { Icon, Keypad, Modal, OnScreenKeyboard, useTypedText } from './parts';
 
 export type AgeInfo = {
@@ -412,6 +412,11 @@ export function ReceiptModal({ receipt, onDone }: { receipt: Receipt; onDone: ()
             <div className="r"><span>Check</span><span>{formatCents(receipt.payment.tenderedCents ?? 0)}</span></div>
             <div className="r"><span><b>Cash to customer</b></span><span><b>{formatCents(receipt.payment.changeCents ?? 0)}</b></span></div>
           </>
+        ) : receipt.payment.tender === 'tab' ? (
+          <>
+            <div className="r"><span><b>ON TAB</b></span><span><b>{receipt.payment.customerName ?? receipt.payment.reference}</b></span></div>
+            {receipt.payment.tabBalanceCents != null && <div className="r"><span>Tab balance now</span><span>{formatCents(receipt.payment.tabBalanceCents)}</span></div>}
+          </>
         ) : <div className="r"><span>Card</span><span>{formatCents(receipt.payment.amountCents)}{receipt.payment.reference ? ` · ref ${receipt.payment.reference}` : ''}</span></div>}
         <hr />
         <div className="c">{receipt.store.footer}<br />{receipt.store.refundPolicy}</div>
@@ -454,30 +459,44 @@ export function TodayModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Check cashing: type the check amount; the fee and the cash to hand over are worked out automatically. */
-export function CheckModal({ feeBp, ticketTotal, busy, error, onClose, onDone }: {
-  feeBp: number; ticketTotal: number; busy: boolean; error: string; onClose: () => void; onDone: (checkCents: number) => void;
+/** Check cashing: type the check amount, pick the fee (flat dollars), add to the ticket. */
+export function CheckModal({ defaultFeeCents, ticketTotal, busy, error, onClose, onDone }: {
+  defaultFeeCents: number; ticketTotal: number; busy: boolean; error: string; onClose: () => void; onDone: (checkCents: number, feeCents: number) => void;
 }) {
   const { digits, press } = useDigits(8);
   const check = centsFromKeypadDigits(digits);
-  const fee = checkFeeCents(check, feeBp);
-  const cashOut = check - fee - ticketTotal;
+  const [fee, setFee] = useState(defaultFeeCents);
+  const [customFee, setCustomFee] = useState(false);
+  const { digits: feeDigits, press: feePress } = useDigits(5);
+  const feeCents = customFee ? centsFromKeypadDigits(feeDigits) : fee;
+  const cashOut = check - feeCents - ticketTotal;
   const ok = check > 0 && cashOut >= 0 && !busy;
-  const pct = feeBp % 100 === 0 ? String(feeBp / 100) : (feeBp / 100).toFixed(2);
   return (
-    <Modal title="Cash a check" onClose={onClose}>
-      <div className="hint">Type the amount written on the check. Digits fill in from the right, so 5 0 0 0 0 makes $500.00.</div>
+    <Modal title="Cash a check" onClose={onClose} footer={<>
+      {check > 0 && cashOut < 0 && <div className="err">The check does not cover the fee and the items already on the ticket.</div>}
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 56, fontSize: 20 }} disabled={!ok} onClick={() => onDone(check, feeCents)}>Add to ticket</button>
+    </>}>
+      <div className="field-label">CHECK AMOUNT — digits fill in from the right, so 5 0 0 0 0 makes $500.00</div>
       <div className="display num" aria-label="Check amount">{formatCents(check)}</div>
-      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={() => { if (ok) onDone(check); }} />
+      {!customFee && <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={() => { if (ok) onDone(check, feeCents); }} />}
+      <div className="field-label">FEE</div>
+      <div className="chips">
+        {[100, 200, 300, 500].map((c) => <button key={c} className={`chip ${!customFee && fee === c ? 'on' : ''}`} onClick={() => { setCustomFee(false); setFee(c); }}>{formatCents(c)}</button>)}
+        <button className={`chip ${!customFee && fee === 0 ? 'on' : ''}`} onClick={() => { setCustomFee(false); setFee(0); }}>No fee</button>
+        <button className={`chip ${customFee ? 'on' : ''}`} onClick={() => setCustomFee(true)}>Other…</button>
+      </div>
+      {customFee && <>
+        <div className="display num" style={{ height: 52, fontSize: 28 }} aria-label="Fee">{formatCents(feeCents)}</div>
+        <Keypad onKey={(k) => (k === '00' ? (feePress('0'), feePress('0')) : feePress(k))} doubleZero onEnter={() => setCustomFee(false)} />
+        <button className="btn btn-block" onClick={() => { setFee(feeCents); setCustomFee(false); }}>Use {formatCents(feeCents)}</button>
+      </>}
       <div className="change" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fee {pct}%</span><span className="num">{formatCents(fee)}</span></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fee</span><span className="num">{formatCents(feeCents)}</span></div>
         {ticketTotal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Items on this ticket</span><span className="num">{formatCents(ticketTotal)}</span></div>}
         <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 24 }}><span>Cash to customer</span><span className="num">{formatCents(Math.max(0, cashOut))}</span></div>
       </div>
-      {check > 0 && cashOut < 0 && <div className="err">The check does not cover the fee and the items already on the ticket.</div>}
-      {error && <div className="err">{error}</div>}
-      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={!ok} onClick={() => onDone(check)}>Add to ticket</button>
-      <div className="hint">Ring up anything else the customer is buying, then press <b>CHECK</b> to finish. The cash to hand over is shown there.</div>
+      <div className="hint">Ring up anything else the customer is buying, then press <b>CHECK</b> to finish.</div>
     </Modal>
   );
 }
@@ -508,6 +527,96 @@ export function PowerModal({ ticketOpen, onClose, onPick }: { ticketOpen: boolea
       <button className="btn btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('quit')}>Close the register</button>
       <button className="btn btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('reboot')}>Restart the computer</button>
       <button className="btn btn-danger btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('poweroff')}>Shut down the computer</button>
+    </Modal>
+  );
+}
+
+/** Pick a customer (or add one) for a tab charge or a tab payment. */
+export function CustomerPickModal({ title, hint, cashier, onClose, onPick }: { title: string; hint: string; cashier: string; onClose: () => void; onPick: (c: CustomerDto) => void }) {
+  const [list, setList] = useState<CustomerDto[] | null>(null);
+  const [q, setQ] = useState('');
+  const [kb, setKb] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState('');
+  const load = () => api<CustomerDto[]>('/api/customers').then(setList).catch((e: Error) => setError(e.message));
+  useEffect(() => { load(); }, []);
+  useTypedText({ onChar: (c) => setQ((s) => s + c), onBack: () => setQ((s) => s.slice(0, -1)), allowDigits: true });
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = (list ?? []).filter((c) => words.every((w) => `${c.name} ${c.phone ?? ''}`.toLowerCase().includes(w))).slice(0, 30);
+  const add = async () => {
+    const name = q.trim();
+    if (!name) return;
+    try { const c = await api<CustomerDto>('/api/customers', { cashier, name }); setAdding(false); onPick(c); } catch (e) { setError((e as Error).message); }
+  };
+  return (
+    <Modal title={title} onClose={onClose} wide footer={<>
+      {error && <div className="err">{error}</div>}
+      {words.length > 0 && shown.length === 0 && !adding && <button className="btn btn-primary btn-block" style={{ minHeight: 54 }} onClick={() => setAdding(true)}>Add "{q.trim()}" as a new customer</button>}
+      {adding && <button className="btn btn-primary btn-block" style={{ minHeight: 54 }} onClick={add}>Yes, add {q.trim()} and continue</button>}
+    </>}>
+      <div className="hint">{hint}</div>
+      <div className="quick" style={{ gridTemplateColumns: '1fr auto' }}>
+        <div className="display plain" style={{ height: 48, fontSize: 20, justifyContent: 'flex-start', fontWeight: 500 }}>{q || <span style={{ color: 'var(--ink-3)' }}>Type the customer's name…</span>}</div>
+        <button className="btn" onClick={() => setKb(!kb)}><Icon name="keyboard" size={20} /></button>
+      </div>
+      {kb && <OnScreenKeyboard onChar={(c) => setQ((s) => s + c)} onBack={() => setQ((s) => s.slice(0, -1))} onClear={() => setQ('')} onDone={() => setKb(false)} />}
+      {list === null && <div className="hint">Loading…</div>}
+      {shown.map((c) => (
+        <button key={c.id} className="pick" onClick={() => onPick(c)}>
+          <b>{c.name}{c.phone ? ` · ${c.phone}` : ''}</b>
+          <small>Owes {formatCents(c.balanceCents)}{c.lastAt ? ` · last ${new Date(c.lastAt).toLocaleDateString('en-US', { timeZone: 'America/New_York' })}` : ''}</small>
+        </button>
+      ))}
+      {list && list.length === 0 && words.length === 0 && <div className="hint">No customers yet. Type a name to add the first one.</div>}
+    </Modal>
+  );
+}
+
+/** Confirms putting the ticket on a customer's tab. */
+export function TabChargeModal({ customer, total, busy, error, onClose, onConfirm }: { customer: CustomerDto; total: number; busy: boolean; error: string; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <Modal title="Put on tab" onClose={onClose}>
+      <div className="result good">
+        <div className="head"><Icon name="id" size={44} /><div className="big">{customer.name}</div>
+          <div className="age">Owes {formatCents(customer.balanceCents)} now · after this {formatCents(customer.balanceCents + total)}</div></div>
+      </div>
+      <div className="change"><span>This ticket (tax included)</span><span className="num">{formatCents(total)}</span></div>
+      <div className="hint">Tax is charged now, with the sale. When they pay the tab later it is just a payment — nothing is taxed again.</div>
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 62, fontSize: 22 }} disabled={busy} onClick={onConfirm}>Charge {formatCents(total)} to {customer.name}</button>
+    </Modal>
+  );
+}
+
+/** Takes a payment against a customer's tab. */
+export function TabPaymentModal({ customer, cashier, onClose, onDone }: { customer: CustomerDto; cashier: string; onClose: () => void; onDone: (balance: number) => void }) {
+  const { digits, press, set } = useDigits(8);
+  const cents = centsFromKeypadDigits(digits);
+  const [tender, setTender] = useState<'cash' | 'card' | 'check'>('cash');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const pay = async () => {
+    if (cents <= 0 || busy) return;
+    setBusy(true); setError('');
+    try { const r = await api<{ balanceCents: number }>(`/api/customers/${customer.id}/payment`, { cashier, cents, tender }); play('done'); onDone(r.balanceCents); }
+    catch (e) { setError((e as Error).message); play('bad'); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title={`Pay on tab · ${customer.name}`} onClose={onClose} footer={<>
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 56, fontSize: 20 }} disabled={cents <= 0 || busy} onClick={pay}>Take {formatCents(cents)} by {tender}</button>
+    </>}>
+      <div className="change"><span>Owes</span><span className="num">{formatCents(customer.balanceCents)}</span></div>
+      <div className="quick" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <button className="btn btn-dark" onClick={() => set(String(Math.max(0, customer.balanceCents)))}>Pay it all</button>
+        {[2000, 5000].map((b) => <button key={b} className="btn" onClick={() => set(String(b))}>{formatCents(b).replace('.00', '')}</button>)}
+      </div>
+      <div className="display num" aria-label="Payment">{formatCents(cents)}</div>
+      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={pay} />
+      <div className="chips">
+        {(['cash', 'card', 'check'] as const).map((t) => <button key={t} className={`chip ${tender === t ? 'on' : ''}`} onClick={() => setTender(t)}>{t === 'cash' ? 'Cash' : t === 'card' ? 'Card' : 'Check'}</button>)}
+      </div>
+      <div className="hint">After this they will owe {formatCents(Math.max(0, customer.balanceCents - cents))}. A tab payment is not a sale: no tax.</div>
     </Modal>
   );
 }

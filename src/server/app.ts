@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { audit, getSetting, type DB } from './db.js';
 import { validateAuthority, type Authority } from '../core/tax.js';
-import { computeTotals, lotteryLabel, type TicketLine, checkFeeCents, checkFeeLabel } from '../core/ticket.js';
+import { computeTotals, lotteryLabel, type TicketLine, checkFeeLabel } from '../core/ticket.js';
 import { workdayFor } from '../core/workday.js';
 import type { createUpdater } from './updater.js';
 import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
@@ -95,7 +95,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
         warnQty: parseInt(getSetting(db, 'warn_qty', '99'), 10),
         warnTotalCents: parseInt(getSetting(db, 'warn_total_cents', '99999'), 10),
         scanIdOnly: getSetting(db, 'scan_id_only', 'true') === 'true',
-        checkFeeBp: parseInt(getSetting(db, 'check_fee_bp', '100'), 10) || 0,
+        checkFeeCents: parseInt(getSetting(db, 'check_fee_cents', '100'), 10) || 0,
         trackStock: getSetting(db, 'track_stock', 'true') === 'true',
       },
       authorities: loadAuthorities(db),
@@ -153,11 +153,17 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     if (totals.ageRequired !== null) checkAge(db, input.ageCheck, input.cashier, totals.ageRequired);
 
     const pay = input.payment;
-    if (!pay || (pay.tender !== 'cash' && pay.tender !== 'card' && pay.tender !== 'check')) throw new HttpError(400, 'Choose how the customer is paying.');
+    if (!pay || (pay.tender !== 'cash' && pay.tender !== 'card' && pay.tender !== 'check' && pay.tender !== 'tab')) throw new HttpError(400, 'Choose how the customer is paying.');
     let tendered: number | null = null;
     let change: number | null = null;
     let reference: string | null = null;
-    if (pay.tender === 'cash' || pay.tender === 'check') {
+    let tabCustomer: { id: number; name: string } | null = null;
+    if (pay.tender === 'tab') {
+      // On the customer's tab: the whole total (tax included) is owed; paying it later is just a payment, not a sale.
+      tabCustomer = db.prepare(`SELECT id, name FROM customers WHERE id = ? AND active = 1`).get(Number(pay.customerId)) as { id: number; name: string } | undefined ?? null;
+      if (!tabCustomer) throw new HttpError(400, 'Pick the customer whose tab this goes on.');
+      reference = tabCustomer.name;
+    } else if (pay.tender === 'cash' || pay.tender === 'check') {
       // A cashed check works like cash handed over: the change is the cash the customer walks out with.
       tendered = Number.isInteger(pay.tenderedCents) ? (pay.tenderedCents as number) : 0;
       if (tendered < totals.totalCents) throw new HttpError(400, pay.tender === 'check' ? 'The check is less than the total.' : 'The cash given is less than the total.');
@@ -193,13 +199,19 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
       for (const t of totals.taxLines) insTax.run(saleId, t.authorityId, t.title, t.cents);
       db.prepare(`INSERT INTO payments (sale_id, tender, amount_cents, tendered_cents, change_cents, reference) VALUES (?, ?, ?, ?, ?, ?)`)
         .run(saleId, pay.tender, totals.totalCents, tendered, change, reference);
-      audit(db, input.cashier, 'sale', `${receiptNo} total ${totals.totalCents} ${pay.tender}`);
+      let tabBalance: number | null = null;
+      if (tabCustomer) {
+        db.prepare(`INSERT INTO tab_entries (customer_id, ts, workday, kind, cents, sale_id, tender, cashier, note) VALUES (?, ?, ?, 'charge', ?, ?, NULL, ?, ?)`)
+          .run(tabCustomer.id, now.toISOString(), workday, totals.totalCents, saleId, input.cashier, receiptNo);
+        tabBalance = tabBalanceCents(db, tabCustomer.id);
+      }
+      audit(db, input.cashier, 'sale', `${receiptNo} total ${totals.totalCents} ${pay.tender}${tabCustomer ? ` (${tabCustomer.name})` : ''}`);
 
       return {
         receiptNo, createdAt: now.toISOString(), cashier: input.cashier, store,
         lines: lines.map((l, i) => ({ name: l.name, qty: l.qty, unitCents: l.unitCents, grossCents: perLine[i]!.grossCents, discountCents: perLine[i]!.discountCents })),
         totals,
-        payment: { tender: pay.tender, amountCents: totals.totalCents, tenderedCents: tendered, changeCents: change, reference },
+        payment: { tender: pay.tender, amountCents: totals.totalCents, tenderedCents: tendered, changeCents: change, reference, customerName: tabCustomer?.name ?? null, tabBalanceCents: tabBalance },
       };
     })();
 
@@ -677,19 +689,19 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     for (const u of [...usage, ...buttonUsage]) use.set(u.id, (use.get(u.id) ?? 0) + u.n);
     res.json({
       authorities: loadAuthorities(db).map((a) => ({ ...a, inUse: use.get(a.id) ?? 0 })),
-      checkFeeBp: parseInt(getSetting(db, 'check_fee_bp', '100'), 10) || 0,
+      checkFeeCents: parseInt(getSetting(db, 'check_fee_cents', '100'), 10) || 0,
       trackStock: getSetting(db, 'track_stock', 'true') === 'true',
       scanIdOnly: getSetting(db, 'scan_id_only', 'true') === 'true',
     });
   }));
   app.post('/api/settings', wrap((req, res) => {
-    const { pin, cashier, checkFeeBp, trackStock, scanIdOnly } = req.body ?? {};
+    const { pin, cashier, checkFeeCents, trackStock, scanIdOnly } = req.body ?? {};
     if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
     const set = db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`);
     const changes: string[] = [];
-    if (checkFeeBp !== undefined) {
-      if (!Number.isInteger(checkFeeBp) || checkFeeBp < 0 || checkFeeBp > 5000) throw new HttpError(400, 'The check fee must be between 0% and 50%.');
-      set.run('check_fee_bp', String(checkFeeBp)); changes.push(`check fee ${checkFeeBp / 100}%`);
+    if (checkFeeCents !== undefined) {
+      if (!Number.isInteger(checkFeeCents) || checkFeeCents < 0 || checkFeeCents > 10000) throw new HttpError(400, 'The check fee must be between $0 and $100.');
+      set.run('check_fee_cents', String(checkFeeCents)); changes.push(`check fee ${formatMoney(checkFeeCents)}`);
     }
     if (trackStock !== undefined) { set.run('track_stock', trackStock ? 'true' : 'false'); changes.push(`stock tracking ${trackStock ? 'on' : 'off'}`); }
     if (scanIdOnly !== undefined) { set.run('scan_id_only', scanIdOnly ? 'true' : 'false'); changes.push(`scan ID only ${scanIdOnly ? 'on' : 'off'}`); }
@@ -763,6 +775,72 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     res.json({ items: out.slice(0, 500), total: out.length });
   }));
 
+  // ---------- customer tabs (store credit) ----------
+  const customerRow = (r: Record<string, any>) => ({ id: r.id, name: r.name, phone: r.phone ?? null, note: r.note ?? null, balanceCents: Number(r.balance ?? 0), lastAt: r.last_at ?? null, active: !!r.active });
+  const CUSTOMER_SQL = `SELECT c.*, COALESCE((SELECT SUM(CASE WHEN kind = 'payment' THEN -cents ELSE cents END) FROM tab_entries t WHERE t.customer_id = c.id), 0) AS balance,
+    (SELECT MAX(ts) FROM tab_entries t WHERE t.customer_id = c.id) AS last_at FROM customers c`;
+  app.get('/api/customers', wrap((req, res) => {
+    const all = String(req.query.all ?? '') === '1';
+    res.json((db.prepare(`${CUSTOMER_SQL} ${all ? '' : 'WHERE c.active = 1'} ORDER BY c.name`).all() as Record<string, any>[]).map(customerRow));
+  }));
+  app.post('/api/customers', wrap((req, res) => {
+    const { cashier, name, phone, note } = req.body ?? {};
+    const n = String(name ?? '').trim().slice(0, 60);
+    if (!n) throw new HttpError(400, 'Give the customer a name.');
+    const r = db.prepare(`INSERT INTO customers (name, phone, note, created_at) VALUES (?, ?, ?, ?)`).run(n, String(phone ?? '').trim().slice(0, 30) || null, String(note ?? '').trim().slice(0, 200) || null, new Date().toISOString());
+    audit(db, String(cashier ?? ''), 'customer_add', n);
+    res.json(customerRow(db.prepare(`${CUSTOMER_SQL} WHERE c.id = ?`).get(r.lastInsertRowid) as Record<string, any>));
+  }));
+  app.post('/api/customers/:id', wrap((req, res) => {
+    const { pin, cashier, name, phone, note, active } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    const cur = db.prepare(`SELECT * FROM customers WHERE id = ?`).get(id) as Record<string, any> | undefined;
+    if (!cur) throw new HttpError(404, 'That customer no longer exists.');
+    db.prepare(`UPDATE customers SET name = ?, phone = ?, note = ?, active = ? WHERE id = ?`).run(
+      String(name ?? cur.name).trim().slice(0, 60) || cur.name, phone === undefined ? cur.phone : (String(phone).trim().slice(0, 30) || null),
+      note === undefined ? cur.note : (String(note).trim().slice(0, 200) || null), active === undefined ? cur.active : (active ? 1 : 0), id);
+    audit(db, String(cashier ?? ''), 'customer_edit', String(cur.name));
+    res.json(customerRow(db.prepare(`${CUSTOMER_SQL} WHERE c.id = ?`).get(id) as Record<string, any>));
+  }));
+  app.get('/api/customers/:id/history', wrap((req, res) => {
+    const id = Number(req.params.id);
+    const rows = db.prepare(`SELECT t.*, s.receipt_no FROM tab_entries t LEFT JOIN sales s ON s.id = t.sale_id WHERE t.customer_id = ? ORDER BY t.ts DESC LIMIT 200`).all(id) as Record<string, any>[];
+    res.json(rows.map((r) => ({ id: r.id, ts: r.ts, kind: r.kind, cents: r.cents, receiptNo: r.receipt_no ?? null, tender: r.tender ?? null, cashier: r.cashier, note: r.note ?? null })));
+  }));
+  // A payment on the tab is money in, not a sale: nothing is taxed again.
+  app.post('/api/customers/:id/payment', wrap(async (req, res) => {
+    const { cashier, cents, tender, note } = req.body ?? {};
+    const id = Number(req.params.id);
+    const c = db.prepare(`SELECT id, name FROM customers WHERE id = ? AND active = 1`).get(id) as { id: number; name: string } | undefined;
+    if (!c) throw new HttpError(404, 'That customer no longer exists.');
+    if (!Number.isInteger(cents) || cents <= 0 || cents > 10_000_000) throw new HttpError(400, 'Enter the amount paid.');
+    if (tender !== 'cash' && tender !== 'card' && tender !== 'check') throw new HttpError(400, 'Cash, card or check?');
+    const now = new Date();
+    const workday = workdayFor(now, getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00'));
+    db.prepare(`INSERT INTO tab_entries (customer_id, ts, workday, kind, cents, sale_id, tender, cashier, note) VALUES (?, ?, ?, 'payment', ?, NULL, ?, ?, ?)`)
+      .run(id, now.toISOString(), workday, cents, tender, String(cashier ?? ''), String(note ?? '').slice(0, 120) || null);
+    audit(db, String(cashier ?? ''), 'tab_payment', `${c.name} ${formatMoney(cents)} ${tender}`);
+    const balance = tabBalanceCents(db, id);
+    res.json({ ok: true, balanceCents: balance });
+    if (tender === 'cash' && getSetting(db, 'drawer_kick', 'true') === 'true') openDrawer().catch((e) => console.log(`[drawer] ${(e as Error).message}`));
+  }));
+  // Manager adjustment (write-off, correction). Positive adds to what is owed, negative forgives.
+  app.post('/api/customers/:id/adjust', wrap((req, res) => {
+    const { pin, cashier, cents, note } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    if (!Number.isInteger(cents) || cents === 0 || Math.abs(cents) > 10_000_000) throw new HttpError(400, 'Enter the amount.');
+    const why = String(note ?? '').trim();
+    if (!why) throw new HttpError(400, 'Say why (e.g. "written off", "typed wrong").');
+    const now = new Date();
+    const workday = workdayFor(now, getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00'));
+    db.prepare(`INSERT INTO tab_entries (customer_id, ts, workday, kind, cents, sale_id, tender, cashier, note) VALUES (?, ?, ?, 'adjust', ?, NULL, NULL, ?, ?)`)
+      .run(id, now.toISOString(), workday, cents, String(cashier ?? ''), why.slice(0, 120));
+    audit(db, String(cashier ?? ''), 'tab_adjust', `customer ${id} ${cents}: ${why}`);
+    res.json({ ok: true, balanceCents: tabBalanceCents(db, id) });
+  }));
+
   // ---------- register window: only ever one ----------
   // The register page holds this stream open while it is showing; a second launch focuses it instead of opening another.
   const registerClients = new Set<express.Response>();
@@ -808,7 +886,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const lines = Array.isArray(b.lines) ? b.lines.slice(0, 200).map((l) => ({ name: String(l.name ?? '').slice(0, 60), qty: Number(l.qty) || 1, cents: Number(l.cents) || 0 })) : [];
     display.set({ mode: b.mode === 'ticket' || b.mode === 'paid' ? b.mode : 'idle', lines,
       subtotalCents: Number(b.subtotalCents) || 0, taxCents: Number(b.taxCents) || 0, discountCents: Number(b.discountCents) || 0, totalCents: Number(b.totalCents) || 0,
-      tender: b.tender === 'cash' || b.tender === 'card' || b.tender === 'check' ? b.tender : undefined, tenderedCents: Number(b.tenderedCents) || undefined, changeCents: Number(b.changeCents) || 0 });
+      tender: b.tender === 'cash' || b.tender === 'card' || b.tender === 'check' || b.tender === 'tab' ? b.tender : undefined, tenderedCents: Number(b.tenderedCents) || undefined, changeCents: Number(b.changeCents) || 0, customerName: b.customerName ? String(b.customerName).slice(0, 60) : undefined });
     res.json({ ok: true, viewers: display.clientCount() });
   }));
   app.get('/api/display/settings', wrap(async (_req, res) => {
@@ -906,8 +984,14 @@ function loadReceipt(db: DB, receiptNo: string): Receipt | null {
     lines: lines.map((l) => ({ name: l.name, qty: l.qty, unitCents: l.unit_cents, grossCents: l.gross_cents, discountCents: l.discount_cents })),
     totals: { subtotalCents: s.subtotal_cents, discountCents: s.discount_cents, taxCents: s.tax_cents, totalCents: s.total_cents,
       taxLines: taxLines.map((t) => ({ authorityId: t.authority_id, title: t.title, cents: t.cents })), ageRequired: null },
-    payment: { tender: pay.tender, amountCents: pay.amount_cents, tenderedCents: pay.tendered_cents, changeCents: pay.change_cents, reference: pay.reference },
+    payment: { tender: pay.tender, amountCents: pay.amount_cents, tenderedCents: pay.tendered_cents, changeCents: pay.change_cents, reference: pay.reference,
+      customerName: pay.tender === 'tab' ? pay.reference : null, tabBalanceCents: null },
   };
+}
+
+function tabBalanceCents(db: DB, customerId: number): number {
+  const r = db.prepare(`SELECT COALESCE(SUM(CASE WHEN kind = 'payment' THEN -cents ELSE cents END), 0) b FROM tab_entries WHERE customer_id = ?`).get(customerId) as { b: number };
+  return Number(r.b);
 }
 
 function buildLine(db: DB, l: SaleLineInput, i: number): TicketLine {
@@ -933,12 +1017,13 @@ function buildLine(db: DB, l: SaleLineInput, i: number): TicketLine {
   }
   if (l.kind === 'service') {
     const amt = l.unitCents as number;
-    if (!Number.isInteger(amt) || amt <= 0 || amt > 10_000_000) throw new HttpError(400, 'Enter the amount.');
+    if (!Number.isInteger(amt) || amt < 0 || amt > 10_000_000 || (l.service === 'gas' && amt <= 0)) throw new HttpError(400, 'Enter the amount.');
     if (l.service === 'gas') return { key, kind: 'service', service: 'gas', name: 'Gas', qty: 1, unitCents: amt, authorityId: null, category: 'Gas', ageMin: null };
     if (l.service === 'check_fee') {
-      // The amount sent is the check; the register works out the fee itself.
-      const bp = parseInt(getSetting(db, 'check_fee_bp', '100'), 10) || 0;
-      return { key, kind: 'service', service: 'check_fee', name: checkFeeLabel(amt, bp), qty: 1, unitCents: checkFeeCents(amt, bp), baseCents: amt,
+      // unitCents is the fee the cashier charged; baseCents is the check being cashed.
+      const check = Number(l.baseCents);
+      if (!Number.isInteger(check) || check <= 0 || check > 10_000_000) throw new HttpError(400, 'Enter the check amount.');
+      return { key, kind: 'service', service: 'check_fee', name: checkFeeLabel(check), qty: 1, unitCents: amt, baseCents: check,
         authorityId: null, category: 'Check Cashing', ageMin: null };
     }
     throw new HttpError(400, 'Unknown service.');

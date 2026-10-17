@@ -85,7 +85,7 @@ h1, h2, h3 { margin: 0; }
 
 .services, .actions { flex: none; display: grid; gap: 10px; }
 .services { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.actions { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.actions { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .svc { height: 62px; border-radius: 12px; border: 2px solid #8da2b3; background: #eaf0f5; display: flex; align-items: center; gap: 8px; padding: 0 10px; text-align: left; font-size: 16px; font-weight: 600; }
 .svc.lotto { border-color: #5db68a; background: var(--good-bg); color: #0b4a33; }
 .svc small { display: block; font-size: 12px; font-weight: 400; }

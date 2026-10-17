@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatCents } from '../core/money';
 import { looksLikeId, parseIdForAge } from '../core/aamva';
-import { computeTotals, dealLabel, type TicketLine, checkFeeCents, checkFeeLabel } from '../core/ticket';
-import type { Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleLineInput } from '../core/types';
+import { computeTotals, dealLabel, type TicketLine, checkFeeLabel } from '../core/ticket';
+import type { Bootstrap, ButtonDto, CustomerDto, HoldDto, ItemDto, Receipt, SaleLineInput } from '../core/types';
 import { ApiError, api } from './api';
 import {
   AskModal, CardModal, CashModal, ConfirmModal, DiscountModal, DobModal, IdModal, LinkModal, LotteryModal, PayoutModal,
-  CheckModal, NewItemModal, PinModal, PowerModal, QtyModal, RecallModal, ReceiptModal, TodayModal, type AgeInfo, type Lookup,
+  CheckModal, CustomerPickModal, NewItemModal, PinModal, PowerModal, QtyModal, TabChargeModal, TabPaymentModal, RecallModal, ReceiptModal, TodayModal, type AgeInfo, type Lookup,
 } from './modals';
 import { Icon, Keypad, OnScreenKeyboard, Shape } from './parts';
 import { InventoryPage, imageUrl } from './inventory';
@@ -15,7 +15,8 @@ import { installTapSound, play, setSoundsEnabled, soundsEnabled } from './sounds
 import { CategoryArt } from './art';
 
 type ModalState =
-  | { t: 'power' } | { t: 'cash' } | { t: 'card' } | { t: 'check' } | { t: 'gas' } | { t: 'lottery' } | { t: 'payout' } | { t: 'id' } | { t: 'dob' } | { t: 'recall' }
+  | { t: 'power' } | { t: 'cash' } | { t: 'card' } | { t: 'check' } | { t: 'gas' }
+  | { t: 'tabpick' } | { t: 'tabcharge'; customer: CustomerDto } | { t: 'tabpaypick' } | { t: 'tabpay'; customer: CustomerDto } | { t: 'lottery' } | { t: 'payout' } | { t: 'id' } | { t: 'dob' } | { t: 'recall' }
   | { t: 'discount' } | { t: 'today' }
   | { t: 'ask'; button: ButtonDto }
   | { t: 'qty'; key: string }
@@ -143,7 +144,7 @@ export function App() {
     const receipt = modal?.t === 'receipt' ? modal.receipt : null;
     const body = receipt
       ? { mode: 'paid', lines: [], subtotalCents: receipt.totals.subtotalCents, taxCents: receipt.totals.taxCents, discountCents: receipt.totals.discountCents,
-          totalCents: receipt.totals.totalCents, tender: receipt.payment.tender, tenderedCents: receipt.payment.tenderedCents ?? undefined, changeCents: receipt.payment.changeCents ?? 0 }
+          totalCents: receipt.totals.totalCents, tender: receipt.payment.tender, tenderedCents: receipt.payment.tenderedCents ?? undefined, changeCents: receipt.payment.changeCents ?? 0, customerName: receipt.payment.customerName ?? undefined }
       : lines.length === 0
         ? { mode: 'idle' }
         : { mode: 'ticket', lines: lines.map((l) => ({ name: l.name, qty: l.qty, cents: lineAmt.get(l.key)?.grossCents ?? l.unitCents * l.qty })),
@@ -310,11 +311,11 @@ export function App() {
     if (l.kind === 'item') return { kind: 'item', itemId: l.itemId ?? undefined, qty: l.qty };
     if (l.kind === 'lottery') return { kind: 'lottery', qty: l.qty, unitCents: l.unitCents };
     if (l.kind === 'ask') return { kind: 'ask', buttonId: l.buttonId ?? undefined, qty: l.qty, unitCents: l.unitCents };
-    if (l.kind === 'service') return { kind: 'service', service: l.service, qty: 1, unitCents: l.service === 'check_fee' ? (l.baseCents ?? 0) : l.unitCents };
+    if (l.kind === 'service') return { kind: 'service', service: l.service, qty: 1, unitCents: l.unitCents, baseCents: l.baseCents };
     return { kind: 'button', buttonId: l.buttonId ?? undefined, qty: l.qty };
   };
 
-  const completeSale = async (payment: { tender: 'cash' | 'card' | 'check'; tenderedCents?: number; reference?: string }, extraLines: TicketLine[] = []) => {
+  const completeSale = async (payment: { tender: 'cash' | 'card' | 'check' | 'tab'; tenderedCents?: number; reference?: string; customerId?: number }, extraLines: TicketLine[] = []) => {
     if (!user) return;
     setBusy(true); setPayError('');
     try {
@@ -586,6 +587,7 @@ export function App() {
           <div className="pay">
             <button className="btn btn-primary" disabled={!canPay} onClick={() => startPay('cash')}>CASH</button>
             <button className="btn btn-primary" disabled={!canPay} onClick={() => startPay('card')}>CARD</button>
+            <button className="btn btn-dark" style={{ flex: 0.7 }} disabled={!canPay} onClick={() => { if (!canPay) return; setPayError(''); setModal({ t: 'tabpick' }); }}>TAB</button>
           </div>
           {lines.length > 0 && (
             <div className="cancel-row">
@@ -662,7 +664,7 @@ export function App() {
           <div className="services">
             <button className="svc lotto" onClick={() => setModal({ t: 'lottery' })}><Icon name="ticket" size={28} /><span>Lottery<small>Pick an amount</small></span></button>
             <button className="svc" onClick={() => setModal({ t: 'gas' })}><Icon name="gas" size={28} /><span>Gas<small>Enter the amount</small></span></button>
-            <button className="svc" onClick={() => setModal({ t: 'check' })}><Icon name="check" size={28} /><span>Cash a Check<small>{boot.settings.checkFeeBp / 100}% fee, automatic</small></span></button>
+            <button className="svc" onClick={() => setModal({ t: 'check' })}><Icon name="check" size={28} /><span>Cash a Check<small>{formatCents(boot.settings.checkFeeCents)} fee</small></span></button>
             <button className="svc" onClick={() => { const b = btnByName('Non-listed Item'); if (b) tapButton(b); }}><Icon name="tag" size={28} /><span>Non-listed Item<small>Enter the price</small></span></button>
             <button className="svc" onClick={() => setModal({ t: 'payout' })}><Icon name="payout" size={28} /><span>Lottery Payout<small>Cash paid out</small></span></button>
           </div>
@@ -672,6 +674,7 @@ export function App() {
             <button className="act" onClick={openRecall}><Icon name="recall" /> Recall</button>
             <button className="act" onClick={() => noSale()}><Icon name="drawer" /> Open Register</button>
             <button className="act" onClick={() => setModal({ t: 'discount' })}><Icon name="discount" /> Discount</button>
+            <button className="act" onClick={() => setModal({ t: 'tabpaypick' })}><Icon name="id" /> Pay on Tab</button>
           </div>
 
           {kb && (
@@ -684,15 +687,21 @@ export function App() {
 
       {modal?.t === 'cash' && <CashModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={(t) => completeSale({ tender: 'cash', tenderedCents: t })} />}
       {modal?.t === 'card' && <CardModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={() => completeSale({ tender: 'card', reference: '' })} />}
+      {modal?.t === 'tabpick' && <CustomerPickModal title="Put on whose tab?" hint="Tap the customer. The whole ticket, tax included, goes on their tab." cashier={user.name} onClose={() => setModal(null)} onPick={(c) => setModal({ t: 'tabcharge', customer: c })} />}
+      {modal?.t === 'tabcharge' && <TabChargeModal customer={modal.customer} total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal({ t: 'tabpick' })}
+        onConfirm={() => completeSale({ tender: 'tab', customerId: modal.customer.id })} />}
+      {modal?.t === 'tabpaypick' && <CustomerPickModal title="Pay on tab" hint="Who is paying on their tab?" cashier={user.name} onClose={() => setModal(null)} onPick={(c) => setModal({ t: 'tabpay', customer: c })} />}
+      {modal?.t === 'tabpay' && <TabPaymentModal customer={modal.customer} cashier={user.name} onClose={() => setModal(null)}
+        onDone={(bal) => { setModal(null); showToast(`Payment taken. ${modal.customer.name} now owes ${formatCents(bal)}.`); }} />}
       {modal?.t === 'power' && <PowerModal ticketOpen={lines.length > 0} onClose={() => setModal(null)} onPick={power} />}
       {modal?.t === 'gas' && <AskModal title="Gas" onClose={() => setModal(null)} onAdd={(cents) => {
         pushLine({ kind: 'service', service: 'gas', name: 'Gas', qty: 1, unitCents: cents, authorityId: null, category: 'Gas', ageMin: null });
         setModal(null);
       }} />}
-      {modal?.t === 'check' && <CheckModal feeBp={boot.settings.checkFeeBp} ticketTotal={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)}
-        onDone={(cents) => {
-          pushLine({ kind: 'service', service: 'check_fee', name: checkFeeLabel(cents, boot.settings.checkFeeBp), qty: 1,
-            unitCents: checkFeeCents(cents, boot.settings.checkFeeBp), baseCents: cents, authorityId: null, category: 'Check Cashing', ageMin: null });
+      {modal?.t === 'check' && <CheckModal defaultFeeCents={boot.settings.checkFeeCents} ticketTotal={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)}
+        onDone={(cents, fee) => {
+          pushLine({ kind: 'service', service: 'check_fee', name: checkFeeLabel(cents), qty: 1,
+            unitCents: fee, baseCents: cents, authorityId: null, category: 'Check Cashing', ageMin: null });
           setModal(null);
           showToast(`Check for ${formatCents(cents)} on the ticket. Press CHECK when done to pay out the cash.`);
         }} />}

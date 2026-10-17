@@ -27,14 +27,9 @@ export type TicketLine = {
   baseCents?: number;
 };
 
-/** Check-cashing fee for a check amount, in cents, at a rate in basis points (100 = 1%). Half-up rounding. */
-export function checkFeeCents(checkCents: number, rateBp: number): number {
-  return Math.floor((checkCents * rateBp + 5000) / 10000);
-}
-
-export function checkFeeLabel(checkCents: number, rateBp: number): string {
-  const pct = rateBp % 100 === 0 ? String(rateBp / 100) : (rateBp / 100).toFixed(2);
-  return `Check cashing ${pct}% (check $${(checkCents / 100).toFixed(2)})`;
+/** "Check cashing (check $500.00)" — the fee itself is whatever the cashier charged. */
+export function checkFeeLabel(checkCents: number): string {
+  return `Check cashing (check $${(checkCents / 100).toFixed(2)})`;
 }
 
 export type TaxLine = { authorityId: number; title: string; cents: number };
