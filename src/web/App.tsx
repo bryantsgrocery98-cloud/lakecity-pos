@@ -499,6 +499,14 @@ export function App() {
             </button>
           )}
           <span className="pill"><span className="lbl">Cashier: </span>{user.name}</span>
+          <button className="btn btn-sm" title="Minimize the register" aria-label="Minimize" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }}
+            onClick={async () => {
+              if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined);
+              const r = await api<{ ok: boolean }>('/api/register/minimize', {}).catch(() => ({ ok: false }));
+              if (!r.ok) showToast('Use the window buttons at the top right to minimize.', true);
+            }}>
+            <Icon name="minimize" size={20} />
+          </button>
           <button className="btn btn-sm" title="Refresh, restart or shut down" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setModal({ t: 'power' })}>
             <Icon name="power" size={20} />
           </button>

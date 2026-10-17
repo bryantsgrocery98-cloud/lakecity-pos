@@ -9,7 +9,7 @@ import type { createUpdater } from './updater.js';
 import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
 import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
 import { listPrinters, listSerialPorts, pulseSerialDrawer, sendToPrinter } from './printer.js';
-import { closeOurWindows, createDisplay, focusRegisterWindow, listScreens, openCustomerWindow, openRegisterWindow, powerOffComputer, type DisplayState } from './display.js';
+import { closeOurWindows, createDisplay, focusRegisterWindow, listScreens, minimizeRegisterWindow, openCustomerWindow, openRegisterWindow, powerOffComputer, type DisplayState } from './display.js';
 import { lookupBarcode, lookupBarcodeLight, lastLookupError } from './lookup.js';
 import { buildDayReport } from './reports.js';
 import type {
@@ -990,6 +990,8 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     }
     res.json({ message: openRegisterWindow(extras.root ?? process.cwd(), url, !!req.body?.windowed) });
   }));
+
+  app.post('/api/register/minimize', wrap(async (_req, res) => { res.json({ ok: await minimizeRegisterWindow() }); }));
 
   // ---------- power: restart / close the register, restart or shut down the computer ----------
   app.post('/api/power', wrap(async (req, res) => {

@@ -39,6 +39,7 @@ export function Icon({ name, size = 24 }: { name: string; size?: number }) {
     case 'id': return <svg {...p}><rect x="2" y="5" width="20" height="14" rx="2" /><circle cx="8" cy="11" r="2" /><path d="M5 16c.6-1.6 2-2.4 3-2.4s2.4.8 3 2.4M14 10h5M14 14h4" /></svg>;
     case 'ticket': return <svg {...p}><path d="M4 6h16v3.5a2.5 2.5 0 0 0 0 5V18H4v-3.5a2.5 2.5 0 0 0 0-5z" /></svg>;
     case 'card': return <svg {...p}><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /><path d="M6 15h4" /></svg>;
+    case 'minimize': return <svg {...p}><path d="M5 19h14" /><path d="M8 11l4 4 4-4" /><path d="M12 3v12" /></svg>;
     case 'power': return <svg {...p}><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>;
     case 'gas': return <svg {...p}><path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16" /><path d="M3 21h14" /><path d="M15 9h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V9l-3-3" /><rect x="7" y="6" width="6" height="4" rx="1" /></svg>;
     case 'check': return <svg {...p}><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>;

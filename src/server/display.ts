@@ -152,3 +152,23 @@ export function openRegisterWindow(root: string, url: string, windowed = false):
     { stdio: 'ignore', detached: true, windowsHide: true }).unref();
   return 'Register screen opened.';
 }
+
+/** Minimizes the register window to the taskbar (Windows). */
+export function minimizeRegisterWindow(): Promise<boolean> {
+  if (process.platform !== 'win32') return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const script = `
+Add-Type @"
+using System; using System.Runtime.InteropServices;
+public class W2 { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd); }
+"@
+$p = Get-Process msedge, chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like '*Grocery POS*' } | Select-Object -First 1
+if ($p) { [W2]::ShowWindow($p.MainWindowHandle, 6) | Out-Null; "FOUND" } else { "NONE" }`;
+    const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
+    let out = '';
+    ps.stdout.on('data', (d) => { out += d; });
+    const done = () => resolve(out.includes('FOUND'));
+    ps.on('close', done); ps.on('error', done);
+    setTimeout(done, 8000);
+  });
+}
