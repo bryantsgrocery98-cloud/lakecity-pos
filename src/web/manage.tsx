@@ -22,7 +22,7 @@ type PrinterCfg = { target: string; printReceipts: boolean; drawerKick: boolean;
 const when = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 export function ManagePage({ pin, cashier, version, onClose }: { pin: string; cashier: string; version: string; onClose: () => void }) {
-  const [tab, setTab] = useState<'sales' | 'day' | 'printer' | 'updates'>('sales');
+  const [tab, setTab] = useState<'sales' | 'day' | 'printer' | 'settings' | 'updates'>('sales');
   return (
     <div className="inv">
       <header className="topbar">
@@ -35,12 +35,14 @@ export function ManagePage({ pin, cashier, version, onClose }: { pin: string; ca
         <button className={`btn ${tab === 'sales' ? 'btn-dark' : ''}`} onClick={() => setTab('sales')}>Sales, voids, refunds</button>
         <button className={`btn ${tab === 'day' ? 'btn-dark' : ''}`} onClick={() => setTab('day')}>Day report (X / Z)</button>
         <button className={`btn ${tab === 'printer' ? 'btn-dark' : ''}`} onClick={() => setTab('printer')}>Printer</button>
+        <button className={`btn ${tab === 'settings' ? 'btn-dark' : ''}`} onClick={() => setTab('settings')}>Settings &amp; Tax</button>
         <button className={`btn ${tab === 'updates' ? 'btn-dark' : ''}`} onClick={() => setTab('updates')}>Updates</button>
       </div>
       <div className="inv-body" style={{ display: 'block', overflowY: 'auto' }}>
         {tab === 'sales' && <SalesTab pin={pin} cashier={cashier} />}
         {tab === 'day' && <DayTab pin={pin} cashier={cashier} />}
         {tab === 'printer' && <PrinterTab pin={pin} />}
+        {tab === 'settings' && <SettingsTab pin={pin} cashier={cashier} />}
         {tab === 'updates' && <UpdatesTab cashier={cashier} version={version} />}
       </div>
     </div>
@@ -423,5 +425,123 @@ function UpdatesTab({ cashier, version }: { cashier: string; version: string }) 
       </div>
       <div className="hint">The register checks every 10 minutes on its own. An update installs by itself as soon as the ticket is empty; if a ticket is open, a green button appears on the register so the cashier can install it when ready.</div>
     </div>
+  );
+}
+
+// ---------- settings & tax ----------
+
+type AuthRow = { id: number; title: string; type: 'tax' | 'fee'; rateBp: number | null; flatCents: number | null; inUse: number };
+type Settings = { authorities: AuthRow[]; checkFeeBp: number; trackStock: boolean; scanIdOnly: boolean };
+type TaxIssue = { id: number; name: string; category: string; current: string; suggestedId: number | null; suggested: string; why: string };
+
+function pctText(bp: number) { return bp % 100 === 0 ? `${bp / 100}%` : `${(bp / 100).toFixed(2)}%`; }
+
+function SettingsTab({ pin, cashier }: { pin: string; cashier: string }) {
+  const [st, setSt] = useState<Settings | null>(null);
+  const [msg, setMsg] = useState('');
+  const [edit, setEdit] = useState<null | { id: number | null; title: string; rateBp: number }>(null);
+  const [issues, setIssues] = useState<{ items: TaxIssue[]; total: number } | null>(null);
+  const [fixing, setFixing] = useState<number | null>(null);
+  const load = () => Promise.all([api<Settings>('/api/settings').then(setSt), api<{ items: TaxIssue[]; total: number }>('/api/tax-check').then(setIssues)]).catch((e: Error) => setMsg(e.message));
+  useEffect(() => { load(); }, []);
+  if (!st) return <div className="hint">Loading…</div>;
+  const save = async (patch: Partial<Settings>) => {
+    try { await api('/api/settings', { pin, cashier, ...patch }); setSt({ ...st, ...patch }); setMsg('Saved.'); play('done'); } catch (e) { setMsg((e as Error).message); play('bad'); }
+  };
+  const saveAuth = async () => {
+    if (!edit) return;
+    try {
+      if (edit.id === null) await api('/api/authorities', { pin, cashier, title: edit.title, rateBp: edit.rateBp, flatCents: null });
+      else await api(`/api/authorities/${edit.id}`, { pin, cashier, title: edit.title, rateBp: edit.rateBp, flatCents: null });
+      setEdit(null); setMsg('Saved.'); play('done'); load();
+    } catch (e) { setMsg((e as Error).message); play('bad'); }
+  };
+  const removeAuth = async (a: AuthRow) => {
+    try { await api(`/api/authorities/${a.id}/delete`, { pin, cashier }); setMsg(`${a.title} removed.`); load(); } catch (e) { setMsg((e as Error).message); play('bad'); }
+  };
+  const fix = async (it: TaxIssue, authorityId: number | null) => {
+    setFixing(it.id);
+    try { await api(`/api/items/${it.id}`, { pin, cashier, authorityId, reason: 'tax check' }); setIssues((cur) => cur ? { items: cur.items.filter((x) => x.id !== it.id), total: cur.total - 1 } : cur); play('ok'); }
+    catch (e) { setMsg((e as Error).message); play('bad'); } finally { setFixing(null); }
+  };
+  return (
+    <div style={{ maxWidth: 860, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {msg && <div className="inv-msg" style={{ margin: 0 }}>{msg}</div>}
+
+      <div className="editor-label">TAX GROUPS</div>
+      <div className="hint">Each item belongs to one tax group. Change a percentage here and every item in that group follows. Flat fees (like a per-unit charge) stay as they are.</div>
+      {st.authorities.map((a) => (
+        <div key={a.id} className="field" style={{ gap: 10 }}>
+          <span className="field-label" style={{ flex: 1 }}>{a.title}<small style={{ display: 'block', color: 'var(--ink-3)', fontWeight: 400 }}>{a.inUse} items</small></span>
+          <span className="field-value num" style={{ fontWeight: 700, minWidth: 90, textAlign: 'right' }}>{a.rateBp !== null ? pctText(a.rateBp) : `${formatCents(a.flatCents ?? 0)}/each`}</span>
+          {a.rateBp !== null && <button className="btn btn-sm" onClick={() => setEdit({ id: a.id, title: a.title, rateBp: a.rateBp ?? 0 })}>Change</button>}
+          {a.inUse === 0 && <button className="btn btn-sm btn-danger" onClick={() => removeAuth(a)}>Remove</button>}
+        </div>
+      ))}
+      <button className="btn btn-block" onClick={() => setEdit({ id: null, title: '', rateBp: 800 })}><Icon name="plus" size={18} /> Add a tax group</button>
+
+      <div className="editor-label">ITEMS THAT MAY BE IN THE WRONG TAX GROUP</div>
+      {issues && issues.items.length === 0 && <div className="hint">Nothing looks out of place.</div>}
+      {issues && issues.items.length > 0 && <div className="hint">{issues.total} item{issues.total === 1 ? '' : 's'} whose name or category doesn't match the tax group they're in. Tap the suggestion to move it, or leave it if it's right.</div>}
+      {issues?.items.slice(0, 60).map((it) => (
+        <div key={it.id} className="field" style={{ gap: 10 }}>
+          <span className="field-label" style={{ flex: 1 }}>{it.name}<small style={{ display: 'block', color: 'var(--ink-3)', fontWeight: 400 }}>{it.category} · now in <b>{it.current}</b> · {it.why}</small></span>
+          <button className="btn btn-sm btn-primary" disabled={fixing === it.id} onClick={() => fix(it, it.suggestedId)}>Move to {it.suggested}</button>
+        </div>
+      ))}
+      {issues && issues.items.length > 60 && <div className="hint">Showing the first 60. Fix these and more will appear.</div>}
+
+      <div className="editor-label">CHECK CASHING</div>
+      <div className="field">
+        <span className="field-label" style={{ flex: 1 }}>Fee charged on cashed checks</span>
+        <span className="field-value num" style={{ fontWeight: 700 }}>{pctText(st.checkFeeBp)}</span>
+        <button className="btn btn-sm" onClick={() => setEdit({ id: -1, title: 'Check cashing fee', rateBp: st.checkFeeBp })}>Change</button>
+      </div>
+
+      <div className="editor-label">STOCK</div>
+      <div className="chips">
+        <button className={`chip ${st.trackStock ? 'on' : ''}`} onClick={() => save({ trackStock: !st.trackStock })}>Keep track of stock counts: {st.trackStock ? 'ON' : 'OFF'}</button>
+      </div>
+      <div className="hint">Off hides stock counts everywhere. Nothing is deleted; turn it back on any time.</div>
+
+      <div className="editor-label">ID CHECK</div>
+      <div className="chips">
+        <button className={`chip ${st.scanIdOnly ? 'on' : ''}`} onClick={() => save({ scanIdOnly: !st.scanIdOnly })}>Typing a birth date needs a manager PIN: {st.scanIdOnly ? 'ON' : 'OFF'}</button>
+      </div>
+
+      {edit && <RateModal edit={edit} onClose={() => setEdit(null)} onChange={setEdit}
+        onSave={() => { if (edit.id === -1) { save({ checkFeeBp: edit.rateBp }); setEdit(null); } else saveAuth(); }} />}
+    </div>
+  );
+}
+
+function RateModal({ edit, onClose, onChange, onSave }: { edit: { id: number | null; title: string; rateBp: number }; onClose: () => void; onChange: (e: { id: number | null; title: string; rateBp: number }) => void; onSave: () => void }) {
+  const [digits, setDigits] = useState(String(edit.rateBp));
+  const [kb, setKb] = useState(edit.id === null);
+  const bp = parseInt(digits || '0', 10);
+  const press = (k: string) => {
+    if (k === 'clear') setDigits('');
+    else if (k === 'back') setDigits((d) => d.slice(0, -1));
+    else setDigits((d) => (d + k).replace(/^0+(?=\d)/, '').slice(0, 5));
+  };
+  useEffect(() => { onChange({ ...edit, rateBp: bp }); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [bp]);
+  const isFee = edit.id === -1;
+  return (
+    <Modal title={edit.id === null ? 'New tax group' : edit.title} onClose={onClose} footer={
+      <button className="btn btn-primary btn-block" style={{ minHeight: 56 }} disabled={!isFee && !edit.title.trim()} onClick={onSave}>Save {pctText(bp)}</button>}>
+      {!isFee && (
+        <>
+          <div className="field-label">NAME</div>
+          <div className="quick" style={{ gridTemplateColumns: '1fr auto' }}>
+            <div className="display plain" style={{ height: 48, fontSize: 20, justifyContent: 'flex-start', fontWeight: 600 }}>{edit.title || <span style={{ color: 'var(--ink-3)' }}>e.g. Alcohol</span>}</div>
+            <button className="btn" onClick={() => setKb(!kb)}><Icon name="keyboard" size={20} /></button>
+          </div>
+          {kb && <OnScreenKeyboard onChar={(c) => onChange({ ...edit, title: edit.title + c })} onBack={() => onChange({ ...edit, title: edit.title.slice(0, -1) })} onClear={() => onChange({ ...edit, title: '' })} onDone={() => setKb(false)} />}
+        </>
+      )}
+      <div className="field-label">PERCENT — type it in hundredths: 8 0 0 = 8%, 1 0 0 = 1%, 8 5 0 = 8.5%</div>
+      <div className="display num">{pctText(bp)}</div>
+      {!kb && <Keypad onKey={press} onEnter={onSave} />}
+    </Modal>
   );
 }

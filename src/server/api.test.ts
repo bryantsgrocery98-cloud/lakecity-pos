@@ -327,3 +327,37 @@ describe('deal pricing through the API', () => {
     await post(`/api/items/${it.id}`, { pin: '2222', cashier: 'Mgr', dealQty: null, dealCents: null });
   });
 });
+
+describe('settings and tax groups', () => {
+  it('adds, changes, and removes a tax group; flags mismatched items', async () => {
+    const add = await post('/api/authorities', { pin: '2222', cashier: 'Mgr', title: 'Prepared Food', rateBp: 900, flatCents: null });
+    expect(add.status).toBe(200);
+    const { id } = (await add.json()) as { id: number };
+    const st = (await (await fetch(base + '/api/settings')).json()) as { authorities: { id: number; title: string; rateBp: number; inUse: number }[]; checkFeeBp: number };
+    const a = st.authorities.find((x) => x.id === id)!;
+    expect(a.rateBp).toBe(900);
+    expect(a.inUse).toBe(0);
+    const ch = await post(`/api/authorities/${id}`, { pin: '2222', cashier: 'Mgr', rateBp: 950 });
+    expect(ch.status).toBe(200);
+    const dup = await post('/api/authorities', { pin: '2222', title: 'Prepared Food', rateBp: 100 });
+    expect(dup.status).toBe(409);
+    const del = await post(`/api/authorities/${id}/delete`, { pin: '2222', cashier: 'Mgr' });
+    expect(del.status).toBe(200);
+    const fee = await post('/api/settings', { pin: '2222', cashier: 'Mgr', checkFeeBp: 150, trackStock: false });
+    expect(fee.status).toBe(200);
+    const st2 = (await (await fetch(base + '/api/settings')).json()) as { checkFeeBp: number; trackStock: boolean };
+    expect(st2.checkFeeBp).toBe(150);
+    expect(st2.trackStock).toBe(false);
+    await post('/api/settings', { pin: '2222', checkFeeBp: 100, trackStock: true });
+
+    // put a beer under Food and Drink; the checker should flag it
+    const beer = boot.items.find((i) => i.name === 'Light Lager')!;
+    const food = boot.authorities.find((x) => /food/i.test(x.title))!;
+    const alcohol = boot.authorities.find((x) => /alcohol/i.test(x.title))!;
+    await post(`/api/items/${beer.id}`, { pin: '2222', cashier: 'Mgr', authorityId: food.id });
+    const chk = (await (await fetch(base + '/api/tax-check')).json()) as { items: { id: number; suggestedId: number }[] };
+    const flagged = chk.items.find((x) => x.id === beer.id);
+    expect(flagged?.suggestedId).toBe(alcohol.id);
+    await post(`/api/items/${beer.id}`, { pin: '2222', cashier: 'Mgr', authorityId: alcohol.id });
+  });
+});

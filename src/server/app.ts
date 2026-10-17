@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { audit, getSetting, type DB } from './db.js';
-import type { Authority } from '../core/tax.js';
+import { validateAuthority, type Authority } from '../core/tax.js';
 import { computeTotals, lotteryLabel, type TicketLine, checkFeeCents, checkFeeLabel } from '../core/ticket.js';
 import { workdayFor } from '../core/workday.js';
 import type { createUpdater } from './updater.js';
@@ -96,6 +96,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
         warnTotalCents: parseInt(getSetting(db, 'warn_total_cents', '99999'), 10),
         scanIdOnly: getSetting(db, 'scan_id_only', 'true') === 'true',
         checkFeeBp: parseInt(getSetting(db, 'check_fee_bp', '100'), 10) || 0,
+        trackStock: getSetting(db, 'track_stock', 'true') === 'true',
       },
       authorities: loadAuthorities(db),
       pages,
@@ -667,6 +668,100 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
 
   // ---------- version and activity (the screen reloads itself after an update; the updater waits while a ticket is open) ----------
   app.get('/api/version', (_req, res) => { res.json({ version: extras.version ?? '0' }); });
+
+  // ---------- settings: tax groups, fees, stock tracking ----------
+  app.get('/api/settings', wrap((_req, res) => {
+    const usage = db.prepare(`SELECT authority_id id, COUNT(*) n FROM items WHERE active = 1 AND authority_id IS NOT NULL GROUP BY authority_id`).all() as { id: number; n: number }[];
+    const buttonUsage = db.prepare(`SELECT authority_id id, COUNT(*) n FROM buttons WHERE authority_id IS NOT NULL GROUP BY authority_id`).all() as { id: number; n: number }[];
+    const use = new Map<number, number>();
+    for (const u of [...usage, ...buttonUsage]) use.set(u.id, (use.get(u.id) ?? 0) + u.n);
+    res.json({
+      authorities: loadAuthorities(db).map((a) => ({ ...a, inUse: use.get(a.id) ?? 0 })),
+      checkFeeBp: parseInt(getSetting(db, 'check_fee_bp', '100'), 10) || 0,
+      trackStock: getSetting(db, 'track_stock', 'true') === 'true',
+      scanIdOnly: getSetting(db, 'scan_id_only', 'true') === 'true',
+    });
+  }));
+  app.post('/api/settings', wrap((req, res) => {
+    const { pin, cashier, checkFeeBp, trackStock, scanIdOnly } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const set = db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`);
+    const changes: string[] = [];
+    if (checkFeeBp !== undefined) {
+      if (!Number.isInteger(checkFeeBp) || checkFeeBp < 0 || checkFeeBp > 5000) throw new HttpError(400, 'The check fee must be between 0% and 50%.');
+      set.run('check_fee_bp', String(checkFeeBp)); changes.push(`check fee ${checkFeeBp / 100}%`);
+    }
+    if (trackStock !== undefined) { set.run('track_stock', trackStock ? 'true' : 'false'); changes.push(`stock tracking ${trackStock ? 'on' : 'off'}`); }
+    if (scanIdOnly !== undefined) { set.run('scan_id_only', scanIdOnly ? 'true' : 'false'); changes.push(`scan ID only ${scanIdOnly ? 'on' : 'off'}`); }
+    if (changes.length) audit(db, String(cashier ?? ''), 'settings', changes.join(', '));
+    res.json({ ok: true });
+  }));
+
+  // Tax groups ("revenue authorities"): add, change the rate, rename, remove when unused.
+  const authorityBody = (b: Record<string, unknown>) => {
+    const title = String(b.title ?? '').trim().slice(0, 40);
+    const rateBp = b.rateBp === null || b.rateBp === undefined ? null : Number(b.rateBp);
+    const flatCents = b.flatCents === null || b.flatCents === undefined ? null : Number(b.flatCents);
+    const err = validateAuthority({ title, rateBp, flatCents });
+    if (err) throw new HttpError(400, err);
+    return { title, rateBp, flatCents, type: flatCents !== null ? 'fee' : 'tax' };
+  };
+  app.post('/api/authorities', wrap((req, res) => {
+    const b = req.body ?? {};
+    if (!isManagerPin(db, b.pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const a = authorityBody(b);
+    if (db.prepare(`SELECT 1 FROM authorities WHERE title = ?`).get(a.title)) throw new HttpError(409, 'There is already a tax group with that name.');
+    const r = db.prepare(`INSERT INTO authorities (title, type, rate_bp, flat_cents) VALUES (?, ?, ?, ?)`).run(a.title, a.type, a.rateBp, a.flatCents);
+    audit(db, String(b.cashier ?? ''), 'authority_add', `${a.title} ${a.rateBp !== null ? `${a.rateBp / 100}%` : `${a.flatCents}c`}`);
+    res.json({ ok: true, id: Number(r.lastInsertRowid) });
+  }));
+  app.post('/api/authorities/:id', wrap((req, res) => {
+    const b = req.body ?? {};
+    if (!isManagerPin(db, b.pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    const cur = db.prepare(`SELECT * FROM authorities WHERE id = ?`).get(id) as Record<string, any> | undefined;
+    if (!cur) throw new HttpError(404, 'That tax group no longer exists.');
+    const a = authorityBody({ title: b.title ?? cur.title, rateBp: b.rateBp !== undefined ? b.rateBp : cur.rate_bp, flatCents: b.flatCents !== undefined ? b.flatCents : cur.flat_cents });
+    const dup = db.prepare(`SELECT id FROM authorities WHERE title = ? AND id != ?`).get(a.title, id);
+    if (dup) throw new HttpError(409, 'There is already a tax group with that name.');
+    db.prepare(`UPDATE authorities SET title = ?, type = ?, rate_bp = ?, flat_cents = ? WHERE id = ?`).run(a.title, a.type, a.rateBp, a.flatCents, id);
+    audit(db, String(b.cashier ?? ''), 'authority_edit', `${cur.title} (${cur.rate_bp ?? cur.flat_cents}) -> ${a.title} (${a.rateBp ?? a.flatCents})`);
+    res.json({ ok: true });
+  }));
+  app.post('/api/authorities/:id/delete', wrap((req, res) => {
+    const b = req.body ?? {};
+    if (!isManagerPin(db, b.pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    const used = (db.prepare(`SELECT (SELECT COUNT(*) FROM items WHERE authority_id = ?) + (SELECT COUNT(*) FROM buttons WHERE authority_id = ?) n`).get(id, id) as { n: number }).n;
+    if (used > 0) throw new HttpError(400, `${used} items or buttons still use this tax group. Move them first.`);
+    const cur = db.prepare(`SELECT title FROM authorities WHERE id = ?`).get(id) as { title: string } | undefined;
+    db.prepare(`DELETE FROM authorities WHERE id = ?`).run(id);
+    audit(db, String(b.cashier ?? ''), 'authority_delete', cur?.title ?? String(id));
+    res.json({ ok: true });
+  }));
+
+  // Items whose name/category looks like it belongs to a different tax group than the one set.
+  app.get('/api/tax-check', wrap((_req, res) => {
+    const auths = loadAuthorities(db);
+    const byId = new Map(auths.map((a) => [a.id, a]));
+    const find = (re: RegExp) => auths.find((a) => re.test(a.title.toLowerCase())) ?? null;
+    const groups = { alcohol: find(/alcohol|beer|wine|liquor/), tobacco: find(/tobacco|cig/), food: find(/food|drink|grocer.*food/), grocery: find(/grocery|all|general|merch/) };
+    const rows = db.prepare(`SELECT id, name, size, category, authority_id, price_cents FROM items WHERE active = 1`).all() as { id: number; name: string; size: string | null; category: string; authority_id: number | null; price_cents: number }[];
+    const out: { id: number; name: string; category: string; current: string; suggestedId: number | null; suggested: string; why: string }[] = [];
+    for (const r of rows) {
+      const text = `${r.name} ${r.category}`.toLowerCase();
+      let expect: { a: Authority | null; why: string } | null = null;
+      if (/root beer|ginger beer|birch beer|beer nuts|beer cheese|beer batter|non-?alcoholic|wine gums|rum cake|bourbon chicken/.test(text)) expect = { a: groups.food, why: 'looks like food or drink' };
+      else if (/\b(beer|lager|ale|ipa|wine|vodka|whiskey|whisky|bourbon|rum|tequila|gin|brandy|seltzer|malt|liquor|moonshine|margarita|cider|natural light|bud|coors|miller|corona|modelo|heineken|michelob|busch|steel reserve|twisted tea|smirnoff|four loko|mike's)\b/.test(text) || /^(alcohol|beer|wine|liquor)/.test(r.category.toLowerCase())) expect = { a: groups.alcohol, why: 'looks like alcohol' };
+      else if (/\b(cigarette|cigarettes|cigar|cigars|cigarillo|swisher|black ?& ?mild|backwoods|newport|marlboro|camel|pall mall|kool|grizzly|skoal|copenhagen|snuff|dip|vape|vapor|e-?liquid|nicotine|zyn|tobacco|rolling paper|blunt|wraps?)\b/.test(text) || /^tobacco/.test(r.category.toLowerCase())) expect = { a: groups.tobacco, why: 'looks like tobacco' };
+      else if (/\b(soda|cola|pepsi|coke|sprite|dr pepper|mountain dew|fanta|water|juice|tea|coffee|milk|energy|gatorade|powerade|monster|red bull|chips|candy|chocolate|cookie|cookies|cake|gum|snack|crackers|jerky|nuts|peanuts|honey bun|donut|bread|sausage|hot dog|pickle|egg|cheese|sandwich|burrito|pizza|ice cream|popsicle|cereal|rice|beans|sugar|flour|ketchup|mustard|mayo|syrup|oatmeal|noodle|ramen|soup|fruit|banana|apple)\b/.test(text) || /^(snack|drinks?|food|candy|beverage|grocery food|dairy|bakery|frozen food)/.test(r.category.toLowerCase())) expect = { a: groups.food, why: 'looks like food or drink' };
+      if (!expect || !expect.a) continue;
+      if (r.authority_id === expect.a.id) continue;
+      const cur = r.authority_id === null ? 'No tax' : byId.get(r.authority_id)?.title ?? '?';
+      out.push({ id: r.id, name: r.size ? `${r.name} ${r.size}` : r.name, category: r.category, current: cur, suggestedId: expect.a.id, suggested: expect.a.title, why: expect.why });
+    }
+    res.json({ items: out.slice(0, 500), total: out.length });
+  }));
 
   // ---------- power: restart / close the register, restart or shut down the computer ----------
   app.post('/api/power', wrap(async (req, res) => {

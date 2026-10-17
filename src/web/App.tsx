@@ -468,7 +468,7 @@ export function App() {
     return <ManagePage pin={manage} cashier={user.name} version={boot.version} onClose={() => setManage(null)} />;
   }
   if (inventory) {
-    return <InventoryPage authorities={boot.authorities} cashier={user.name} pin={inventory} version={boot.version} scanRef={invScan}
+    return <InventoryPage authorities={boot.authorities} cashier={user.name} pin={inventory} version={boot.version} trackStock={boot.settings.trackStock} scanRef={invScan}
       onClose={() => setInventory(null)} onChanged={() => api<Bootstrap>('/api/bootstrap').then(setBoot).catch(() => {})} />;
   }
 

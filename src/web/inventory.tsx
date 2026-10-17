@@ -14,9 +14,9 @@ export type InventoryItem = {
 const LOW_STOCK = 5;
 export const imageUrl = (id: number, v: number) => (v > 0 ? `/images/${id}.jpg?v=${v}` : null);
 
-type Props = { authorities: Authority[]; cashier: string; pin: string; version: string; onClose: () => void; onChanged: () => void; scanRef: React.MutableRefObject<((code: string) => void) | null> };
+type Props = { authorities: Authority[]; cashier: string; pin: string; version: string; trackStock?: boolean; onClose: () => void; onChanged: () => void; scanRef: React.MutableRefObject<((code: string) => void) | null> };
 
-export function InventoryPage({ authorities, cashier, pin, version, onClose, onChanged, scanRef }: Props) {
+export function InventoryPage({ authorities, cashier, pin, version, trackStock = true, onClose, onChanged, scanRef }: Props) {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [q, setQ] = useState('');
   const [kb, setKb] = useState(false);
@@ -77,7 +77,7 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
   return (
     <div className="inv">
       <header className="topbar">
-        <div><span className="brand">Inventory</span><span className="sub">{items.filter((i) => i.active).length} items · stock at shelf price {formatCents(stockValue)}</span></div>
+        <div><span className="brand">Inventory</span><span className="sub">{items.filter((i) => i.active).length} items{trackStock ? ` · stock at shelf price ${formatCents(stockValue)}` : ''}</span></div>
         <div className="topbar-right">
           <span className="pill" title={update?.message ?? ''}>v{version}{update?.latest && update.latest !== version ? ` · ${update.latest} available` : ''}</span>
           <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setImporting(true)}><Icon name="upload" size={20} /> Import price book</button>
@@ -100,7 +100,7 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
       {kb && <OnScreenKeyboard onChar={(c) => setQ((s) => s + c)} onBack={() => setQ((s) => s.slice(0, -1))} onClear={() => setQ('')} onDone={() => setKb(false)} />}
       <div className="inv-filters">
         <button className={`btn btn-sm ${filter === 'all' ? 'btn-dark' : ''}`} onClick={() => setFilter('all')}>All</button>
-        <button className={`btn btn-sm ${filter === 'low' ? 'btn-dark' : ''}`} onClick={() => setFilter('low')}>Low stock ({counts.low})</button>
+        {trackStock && <button className={`btn btn-sm ${filter === 'low' ? 'btn-dark' : ''}`} onClick={() => setFilter('low')}>Low stock ({counts.low})</button>}
         <button className={`btn btn-sm ${filter === 'nobc' ? 'btn-dark' : ''}`} onClick={() => setFilter('nobc')}>No barcode ({counts.nobc})</button>
         <button className={`btn btn-sm ${filter === 'noimg' ? 'btn-dark' : ''}`} onClick={() => setFilter('noimg')}>No picture ({counts.noimg})</button>
         <button className={`btn btn-sm ${filter === 'off' ? 'btn-dark' : ''}`} onClick={() => setFilter('off')}>Hidden</button>
@@ -115,10 +115,10 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
           {view === 'grid' ? (
             <div className="inv-grid">
               {shown.map((i) => (
-                <button key={i.id} className={`inv-card ${sel?.id === i.id ? 'sel' : ''} ${i.qtyOnHand <= LOW_STOCK ? 'low' : ''}`} onClick={() => { setSel(i); setAdding(false); }}>
+                <button key={i.id} className={`inv-card ${sel?.id === i.id ? 'sel' : ''} ${trackStock && i.qtyOnHand <= LOW_STOCK ? 'low' : ''}`} onClick={() => { setSel(i); setAdding(false); }}>
                   <Thumb item={i} size={120} />
                   <div className="inv-card-name">{i.name}{i.size && <span className="hint"> {i.size}</span>}</div>
-                  <div className="inv-card-row"><span className="num" style={{ fontWeight: 700, fontSize: 19 }}>{formatCents(i.priceCents)}</span><span className={`stock ${i.qtyOnHand <= 0 ? 'bad' : ''}`}>{i.qtyOnHand} in stock</span></div>
+                  <div className="inv-card-row"><span className="num" style={{ fontWeight: 700, fontSize: 19 }}>{formatCents(i.priceCents)}</span>{trackStock && <span className={`stock ${i.qtyOnHand <= 0 ? 'bad' : ''}`}>{i.qtyOnHand} in stock</span>}</div>
                   <div className="inv-card-tags">{i.ageMin && <span className="age-tag">{i.ageMin}+</span>}{i.barcodes.length === 0 && <span className="tag">no barcode</span>}{!i.active && <span className="tag">hidden</span>}</div>
                 </button>
               ))}
@@ -126,17 +126,17 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
             </div>
           ) : (
             <table className="rep items-table">
-              <thead><tr><th></th><th>Item</th><th>Barcodes</th><th>Category</th><th>Tax</th><th className="num">Price</th><th className="num">Cost</th><th className="num">Stock</th></tr></thead>
+              <thead><tr><th></th><th>Item</th><th>Barcodes</th><th>Category</th><th>Tax</th><th className="num">Price</th><th className="num">Cost</th>{trackStock && <th className="num">Stock</th>}</tr></thead>
               <tbody>
                 {shown.map((i) => (
-                  <tr key={i.id} className={`${i.qtyOnHand <= LOW_STOCK ? 'low' : ''} ${sel?.id === i.id ? 'sel' : ''}`} onClick={() => { setSel(i); setAdding(false); }}>
+                  <tr key={i.id} className={`${trackStock && i.qtyOnHand <= LOW_STOCK ? 'low' : ''} ${sel?.id === i.id ? 'sel' : ''}`} onClick={() => { setSel(i); setAdding(false); }}>
                     <td><Thumb item={i} size={44} /></td>
                     <td><b>{i.name}</b>{i.size && <span className="hint"> {i.size}</span>}{i.ageMin && <span className="age-tag">{i.ageMin}+</span>}</td>
                     <td className="hint">{i.barcodes.join(', ') || '—'}</td>
                     <td>{i.category}</td><td>{authLabel(i.authorityId)}</td>
                     <td className="num">{formatCents(i.priceCents)}</td>
                     <td className="num hint">{i.costCents === null ? '—' : formatCents(i.costCents)}</td>
-                    <td className="num">{i.qtyOnHand <= 0 ? <b style={{ color: 'var(--bad)' }}>{i.qtyOnHand}</b> : i.qtyOnHand}</td>
+                    {trackStock && <td className="num">{i.qtyOnHand <= 0 ? <b style={{ color: 'var(--bad)' }}>{i.qtyOnHand}</b> : i.qtyOnHand}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -146,9 +146,9 @@ export function InventoryPage({ authorities, cashier, pin, version, onClose, onC
 
         <aside className="inv-edit">
           {adding ? (
-            <ItemEditor key="new" item={null} authorities={authorities} cats={cats} pin={pin} cashier={cashier} onDone={(it) => { setAdding(false); afterSave(it); }} onCancel={() => setAdding(false)} />
+            <ItemEditor key="new" item={null} authorities={authorities} cats={cats} pin={pin} cashier={cashier} trackStock={trackStock} onDone={(it) => { setAdding(false); afterSave(it); }} onCancel={() => setAdding(false)} />
           ) : sel ? (
-            <ItemEditor key={sel.id} item={sel} authorities={authorities} cats={cats} pin={pin} cashier={cashier} onDone={(it) => afterSave(it)} onCancel={() => setSel(null)} />
+            <ItemEditor key={sel.id} item={sel} authorities={authorities} cats={cats} pin={pin} cashier={cashier} trackStock={trackStock} onDone={(it) => afterSave(it)} onCancel={() => setSel(null)} />
           ) : (
             <div className="inv-empty">
               <Icon name="box" size={48} />
@@ -274,8 +274,8 @@ export function Thumb({ item, size }: { item: { id: number; name: string; color:
 
 type Draft = { name: string; size: string; priceCents: number; costCents: number | null; category: string; authorityId: number | null; ageMin: number | null; qtyOnHand: number; frequent: boolean; active: boolean; dealQty: number | null; dealCents: number | null };
 
-function ItemEditor({ item, authorities, cats, pin, cashier, onDone, onCancel }: {
-  item: InventoryItem | null; authorities: Authority[]; cats: string[]; pin: string; cashier: string; onDone: (it: InventoryItem | null) => void; onCancel: () => void;
+function ItemEditor({ item, authorities, cats, pin, cashier, trackStock = true, onDone, onCancel }: {
+  item: InventoryItem | null; authorities: Authority[]; cats: string[]; pin: string; cashier: string; trackStock?: boolean; onDone: (it: InventoryItem | null) => void; onCancel: () => void;
 }) {
   const [d, setD] = useState<Draft>(item ? { name: item.name, size: item.size ?? '', priceCents: item.priceCents, costCents: item.costCents, category: item.category, authorityId: item.authorityId, ageMin: item.ageMin, qtyOnHand: item.qtyOnHand, frequent: item.frequent, active: item.active, dealQty: item.dealQty ?? null, dealCents: item.dealCents ?? null }
     : { name: '', size: '', priceCents: 0, costCents: null, category: cats[0] ?? 'Snacks', authorityId: authorities[0]?.id ?? null, ageMin: null, qtyOnHand: 0, frequent: false, active: true, dealQty: null, dealCents: null });
@@ -353,7 +353,7 @@ function ItemEditor({ item, authorities, cats, pin, cashier, onDone, onCancel }:
       <div className="editor-row">
         <Field label="Price" value={formatCents(d.priceCents)} onEdit={() => setNum('price')} />
         <Field label="Cost" value={d.costCents === null ? '—' : formatCents(d.costCents)} onEdit={() => setNum('cost')} />
-        <Field label="In stock" value={String(d.qtyOnHand)} onEdit={() => setNum('stock')} />
+        {trackStock && <Field label="In stock" value={String(d.qtyOnHand)} onEdit={() => setNum('stock')} />}
       </div>
       <div className="editor-label">DEAL (optional) — e.g. 2 for $1.00</div>
       <div className="editor-row">

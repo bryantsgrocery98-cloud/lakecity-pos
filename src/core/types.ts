@@ -48,6 +48,8 @@ export type SettingsDto = {
   scanIdOnly: boolean;
   /** Check-cashing fee in basis points (100 = 1%). */
   checkFeeBp: number;
+  /** Whether stock counts are shown and kept. */
+  trackStock: boolean;
 };
 
 export type Bootstrap = {
