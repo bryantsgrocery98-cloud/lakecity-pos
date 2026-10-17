@@ -1,7 +1,7 @@
 {
-  "version": "0.12.4",
-  "file": "lakecity-pos-0.12.4.zip",
-  "sha256": "272160c68e9220214d9bc222a6dc830a50115a2df7f15e8330fb768eb2e997fd",
-  "notes": "Minimize button in the top bar.",
-  "builtAt": "2026-10-17T19:09:34.022Z"
+  "version": "0.12.5",
+  "file": "lakecity-pos-0.12.5.zip",
+  "sha256": "55e09a8df291029c3099ebf461d677de3e874bb44c2b86ce1f22fd5c1f07de94",
+  "notes": "Add-new-item no longer defaults to an age-restricted category.",
+  "builtAt": "2026-10-17T19:19:32.583Z"
 }
