@@ -1,7 +1,7 @@
 {
-  "version": "0.11.5",
-  "file": "lakecity-pos-0.11.5.zip",
-  "sha256": "399007d96eeb07f45c9c810208868e3970ce0784a9d2c5626a9989fb4dc91dd4",
-  "notes": "Top bar never squeezes (icons only on narrow windows); Full screen option under the power button.",
-  "builtAt": "2026-10-17T18:09:46.665Z"
+  "version": "0.11.6",
+  "file": "lakecity-pos-0.11.6.zip",
+  "sha256": "6e30096b054e3a0c0ac2d12a779c48f101c90d78719d1ace0b430d045fcc2c2a",
+  "notes": "Picture lookup: waits longer for the product database, falls back to its older endpoint, and shows the real error when it cannot be reached.",
+  "builtAt": "2026-10-17T18:21:30.974Z"
 }
