@@ -30,7 +30,7 @@ export class DB {
   close(): void { this.raw.close(); }
 }
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS sale_lines (
 CREATE TABLE IF NOT EXISTS sale_tax (
   sale_id INTEGER NOT NULL REFERENCES sales(id), authority_id INTEGER NOT NULL, title TEXT NOT NULL, cents INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS payments (
-  id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), tender TEXT NOT NULL CHECK (tender IN ('cash','card','check','tab')),
+  id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), tender TEXT NOT NULL CHECK (tender IN ('cash','card','check','tab','lottery')),
   amount_cents INTEGER NOT NULL, tendered_cents INTEGER, change_cents INTEGER, reference TEXT);
 CREATE TABLE IF NOT EXISTS holds (
   id INTEGER PRIMARY KEY, label TEXT NOT NULL, lines_json TEXT NOT NULL, discount_pct INTEGER NOT NULL DEFAULT 0,
@@ -134,7 +134,7 @@ function migrate(db: DB): void {
     if (current < 4) {
       // Checks can now be taken as payment (check cashing). SQLite cannot change a CHECK constraint, so rebuild the table.
       db.exec(`CREATE TABLE payments_v4 (
-          id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), tender TEXT NOT NULL CHECK (tender IN ('cash','card','check','tab')),
+          id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), tender TEXT NOT NULL CHECK (tender IN ('cash','card','check','tab','lottery')),
           amount_cents INTEGER NOT NULL, tendered_cents INTEGER, change_cents INTEGER, reference TEXT);
         INSERT INTO payments_v4 (id, sale_id, tender, amount_cents, tendered_cents, change_cents, reference)
           SELECT id, sale_id, tender, amount_cents, tendered_cents, change_cents, reference FROM payments;
@@ -149,12 +149,21 @@ function migrate(db: DB): void {
           id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id), ts TEXT NOT NULL, workday TEXT NOT NULL,
           kind TEXT NOT NULL CHECK (kind IN ('charge','payment','adjust')), cents INTEGER NOT NULL, sale_id INTEGER, tender TEXT, cashier TEXT NOT NULL, note TEXT);
         CREATE TABLE payments_v6 (
-          id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), tender TEXT NOT NULL CHECK (tender IN ('cash','card','check','tab')),
+          id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), tender TEXT NOT NULL CHECK (tender IN ('cash','card','check','tab','lottery')),
           amount_cents INTEGER NOT NULL, tendered_cents INTEGER, change_cents INTEGER, reference TEXT);
         INSERT INTO payments_v6 (id, sale_id, tender, amount_cents, tendered_cents, change_cents, reference)
           SELECT id, sale_id, tender, amount_cents, tendered_cents, change_cents, reference FROM payments;
         DROP TABLE payments;
         ALTER TABLE payments_v6 RENAME TO payments;`);
+    }
+    if (current < 7) {
+      db.exec(`CREATE TABLE payments_v7 (
+          id INTEGER PRIMARY KEY, sale_id INTEGER NOT NULL REFERENCES sales(id), tender TEXT NOT NULL CHECK (tender IN ('cash','card','check','tab','lottery')),
+          amount_cents INTEGER NOT NULL, tendered_cents INTEGER, change_cents INTEGER, reference TEXT);
+        INSERT INTO payments_v7 (id, sale_id, tender, amount_cents, tendered_cents, change_cents, reference)
+          SELECT id, sale_id, tender, amount_cents, tendered_cents, change_cents, reference FROM payments;
+        DROP TABLE payments;
+        ALTER TABLE payments_v7 RENAME TO payments;`);
     }
   }
   db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));

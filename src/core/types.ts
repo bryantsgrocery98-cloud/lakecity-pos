@@ -67,7 +67,7 @@ export type SaleLineInput = {
   itemId?: number;
   buttonId?: number;
   /** For service lines: which service. */
-  service?: 'gas' | 'check_fee';
+  service?: 'gas' | 'check_fee' | 'lottery_win';
   /** For a check-cashing fee line: the amount of the check being cashed. */
   baseCents?: number;
   qty: number;
@@ -85,7 +85,7 @@ export type SaleInput = {
   cashier: string;
   discountPct: number;
   lines: SaleLineInput[];
-  payment: { tender: 'cash' | 'card' | 'check' | 'tab'; tenderedCents?: number; reference?: string; customerId?: number };
+  payment: { tender: 'cash' | 'card' | 'check' | 'tab' | 'lottery'; tenderedCents?: number; reference?: string; customerId?: number };
   ageCheck?: AgeCheckInput;
 };
 
@@ -96,7 +96,7 @@ export type Receipt = {
   store: StoreDto;
   lines: { name: string; qty: number; unitCents: number; grossCents: number; discountCents: number }[];
   totals: Totals;
-  payment: { tender: 'cash' | 'card' | 'check' | 'tab'; amountCents: number; tenderedCents: number | null; changeCents: number | null; reference: string | null; customerName?: string | null; tabBalanceCents?: number | null };
+  payment: { tender: 'cash' | 'card' | 'check' | 'tab' | 'lottery'; amountCents: number; tenderedCents: number | null; changeCents: number | null; reference: string | null; customerName?: string | null; tabBalanceCents?: number | null };
 };
 
 export type HoldDto = {

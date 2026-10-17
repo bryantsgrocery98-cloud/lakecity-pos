@@ -394,3 +394,25 @@ describe('customer tabs', () => {
     expect(bad.status).toBe(400);
   });
 });
+
+describe('lottery winnings as payment', () => {
+  it('pays for the purchase and hands back the rest; counts as a lottery payout', async () => {
+    const cola = item('Cola');
+    const r = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'item', itemId: cola.id, qty: 1 }, { kind: 'service', service: 'lottery_win', qty: 1, unitCents: 0, baseCents: 2000 }], payment: { tender: 'lottery' } });
+    expect(r.status).toBe(200);
+    const rc = (await r.json()) as Receipt;
+    expect(rc.payment.tender).toBe('lottery');
+    expect(rc.payment.tenderedCents).toBe(2000);
+    expect(rc.payment.changeCents).toBe(2000 - rc.totals.totalCents);
+    expect(rc.lines.some((l) => l.name.startsWith('Lottery winnings'))).toBe(true);
+    // straight payout with nothing bought
+    const r2 = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'lottery_win', qty: 1, unitCents: 0, baseCents: 500 }], payment: { tender: 'lottery' } });
+    expect(r2.status).toBe(200);
+    expect(((await r2.json()) as Receipt).payment.changeCents).toBe(500);
+    // winnings too small
+    const bad = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'item', itemId: cola.id, qty: 5 }, { kind: 'service', service: 'lottery_win', qty: 1, unitCents: 0, baseCents: 100 }], payment: { tender: 'lottery' } });
+    expect(bad.status).toBe(400);
+    const day = (await (await fetch(base + '/api/reports/day')).json()) as { lottery: { payouts: number } };
+    expect(day.lottery.payouts).toBeGreaterThanOrEqual(2500);
+  });
+});

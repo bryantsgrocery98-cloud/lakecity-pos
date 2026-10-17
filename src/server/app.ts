@@ -153,7 +153,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     if (totals.ageRequired !== null) checkAge(db, input.ageCheck, input.cashier, totals.ageRequired);
 
     const pay = input.payment;
-    if (!pay || (pay.tender !== 'cash' && pay.tender !== 'card' && pay.tender !== 'check' && pay.tender !== 'tab')) throw new HttpError(400, 'Choose how the customer is paying.');
+    if (!pay || !['cash', 'card', 'check', 'tab', 'lottery'].includes(pay.tender)) throw new HttpError(400, 'Choose how the customer is paying.');
     let tendered: number | null = null;
     let change: number | null = null;
     let reference: string | null = null;
@@ -163,10 +163,15 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
       tabCustomer = db.prepare(`SELECT id, name FROM customers WHERE id = ? AND active = 1`).get(Number(pay.customerId)) as { id: number; name: string } | undefined ?? null;
       if (!tabCustomer) throw new HttpError(400, 'Pick the customer whose tab this goes on.');
       reference = tabCustomer.name;
-    } else if (pay.tender === 'cash' || pay.tender === 'check') {
-      // A cashed check works like cash handed over: the change is the cash the customer walks out with.
+    } else if (pay.tender === 'cash' || pay.tender === 'check' || pay.tender === 'lottery') {
+      // A cashed check or a winning lottery ticket works like cash handed over: the change is the cash the customer walks out with.
       tendered = Number.isInteger(pay.tenderedCents) ? (pay.tenderedCents as number) : 0;
-      if (tendered < totals.totalCents) throw new HttpError(400, pay.tender === 'check' ? 'The check is less than the total.' : 'The cash given is less than the total.');
+      if (pay.tender === 'lottery') {
+        const wins = lines.filter((l) => l.kind === 'service' && l.service === 'lottery_win').reduce((a, l) => a + (l.baseCents ?? 0), 0);
+        if (wins <= 0) throw new HttpError(400, 'Enter the winning ticket amount first.');
+        tendered = wins;
+      }
+      if (tendered < totals.totalCents) throw new HttpError(400, pay.tender === 'check' ? 'The check is less than the total.' : pay.tender === 'lottery' ? 'The winnings are less than the total.' : 'The cash given is less than the total.');
       change = tendered - totals.totalCents;
       if (pay.tender === 'check') reference = String(pay.reference ?? '').trim().slice(0, 24) || null;
     } else {
@@ -218,7 +223,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     res.json(receipt);
     // After the sale: kick the drawer on cash, and print a receipt if that's turned on. Never block the sale on the printer.
     const printer = getSetting(db, 'printer_target', '');
-    const kick = (pay.tender === 'cash' || pay.tender === 'check') && getSetting(db, 'drawer_kick', 'true') === 'true';
+    const kick = (pay.tender === 'cash' || pay.tender === 'check' || pay.tender === 'lottery') && getSetting(db, 'drawer_kick', 'true') === 'true';
     const auto = getSetting(db, 'print_receipts', 'false') === 'true';
     const viaPrinter = !getSetting(db, 'drawer_port', '');
     if (kick && !viaPrinter) openDrawer().catch((e) => console.log(`[drawer] ${(e as Error).message}`));
@@ -910,7 +915,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const lines = Array.isArray(b.lines) ? b.lines.slice(0, 200).map((l) => ({ name: String(l.name ?? '').slice(0, 60), qty: Number(l.qty) || 1, cents: Number(l.cents) || 0 })) : [];
     display.set({ mode: b.mode === 'ticket' || b.mode === 'paid' ? b.mode : 'idle', lines,
       subtotalCents: Number(b.subtotalCents) || 0, taxCents: Number(b.taxCents) || 0, discountCents: Number(b.discountCents) || 0, totalCents: Number(b.totalCents) || 0,
-      tender: b.tender === 'cash' || b.tender === 'card' || b.tender === 'check' || b.tender === 'tab' ? b.tender : undefined, tenderedCents: Number(b.tenderedCents) || undefined, changeCents: Number(b.changeCents) || 0, customerName: b.customerName ? String(b.customerName).slice(0, 60) : undefined });
+      tender: ['cash', 'card', 'check', 'tab', 'lottery'].includes(String(b.tender)) ? (b.tender as DisplayState['tender']) : undefined, tenderedCents: Number(b.tenderedCents) || undefined, changeCents: Number(b.changeCents) || 0, customerName: b.customerName ? String(b.customerName).slice(0, 60) : undefined });
     res.json({ ok: true, viewers: display.clientCount() });
   }));
   app.get('/api/display/settings', wrap(async (_req, res) => {
@@ -1043,6 +1048,12 @@ function buildLine(db: DB, l: SaleLineInput, i: number): TicketLine {
     const amt = l.unitCents as number;
     if (!Number.isInteger(amt) || amt < 0 || amt > 10_000_000 || (l.service === 'gas' && amt <= 0)) throw new HttpError(400, 'Enter the amount.');
     if (l.service === 'gas') return { key, kind: 'service', service: 'gas', name: 'Gas', qty: 1, unitCents: amt, authorityId: null, category: 'Gas', ageMin: null };
+    if (l.service === 'lottery_win') {
+      const win = Number(l.baseCents);
+      if (!Number.isInteger(win) || win <= 0 || win > 10_000_000) throw new HttpError(400, 'Enter the winning ticket amount.');
+      return { key, kind: 'service', service: 'lottery_win', name: `Lottery winnings (ticket $${(win / 100).toFixed(2)})`, qty: 1, unitCents: 0, baseCents: win,
+        authorityId: null, category: 'Lottery', ageMin: null };
+    }
     if (l.service === 'check_fee') {
       // unitCents is the fee the cashier charged; baseCents is the check being cashed.
       const check = Number(l.baseCents);

@@ -20,7 +20,8 @@ export function buildDayReport(db: DB, workday: string, cashier: string, title: 
     `SELECT tender, SUM(amount_cents) cents, COUNT(*) count FROM payments WHERE sale_id IN (${live}) GROUP BY tender ORDER BY tender`, workday);
   const lotterySales = one<{ c: number }>(`SELECT COALESCE(SUM(gross_cents),0) c FROM sale_lines WHERE kind = 'lottery' AND sale_id IN (${live})`, workday).c;
   const dayStart = sales.from ?? `${workday}T00:00:00`;
-  const payouts = one<{ c: number }>(`SELECT COALESCE(SUM(amount_cents),0) c FROM cash_events WHERE type = 'lottery_payout' AND substr(ts,1,10) = ?`, workday).c;
+  const payouts = one<{ c: number }>(`SELECT COALESCE(SUM(amount_cents),0) c FROM cash_events WHERE type = 'lottery_payout' AND substr(ts,1,10) = ?`, workday).c
+    + one<{ c: number }>(`SELECT COALESCE(SUM(tendered_cents),0) c FROM payments WHERE tender = 'lottery' AND sale_id IN (${live})`, workday).c;
   const noSales = one<{ n: number }>(`SELECT COUNT(*) n FROM cash_events WHERE type = 'no_sale' AND substr(ts,1,10) = ?`, workday).n;
   // Checks taken in and the cash handed back for them (so the drawer count works out).
   // Tab payments received today (money in that is not a sale), and what was charged to tabs.
@@ -36,7 +37,7 @@ export function buildDayReport(db: DB, workday: string, cashier: string, title: 
     title, workday, from: sales.from ?? '', to: sales.to ?? '', cashier,
     sales: { count: sales.n, subtotal: sales.subtotal, discount: sales.discount, tax: sales.tax, total: sales.total },
     voids: { count: voids.n, total: voids.total }, refunds: { count: refunds.n, total: refunds.total },
-    byCategory, byAuthority, tenders: tenders.map((t) => ({ ...t, tender: t.tender === 'cash' ? 'Cash' : t.tender === 'check' ? 'Checks cashed' : t.tender === 'tab' ? 'Charged to tabs' : 'Card' })),
+    byCategory, byAuthority, tenders: tenders.map((t) => ({ ...t, tender: t.tender === 'cash' ? 'Cash' : t.tender === 'check' ? 'Checks cashed' : t.tender === 'tab' ? 'Charged to tabs' : t.tender === 'lottery' ? 'Paid with lottery winnings' : 'Card' })),
     lottery: { sales: lotterySales, payouts }, noSales, items,
     checks: { count: checks.n, tendered: checks.tendered, cashOut: checks.cashOut },
     tabs: { charged: tabCharged.c, chargedCount: tabCharged.n, payments: tabPay.map((t) => ({ tender: t.tender, cents: t.cents, count: t.count })), paymentsTotal: tabPay.reduce((a, t) => a + t.cents, 0), owedTotal: tabOwed.c },

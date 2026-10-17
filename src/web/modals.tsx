@@ -100,14 +100,15 @@ export function LotteryModal({ onClose, onAdd }: { onClose: () => void; onAdd: (
 }
 
 export function PayoutModal({ onClose, onSave }: { onClose: () => void; onSave: (cents: number) => void }) {
+  // Winning lottery ticket: the amount goes on the ticket and pays for whatever they buy; the rest is cash back.
   const { digits, press } = useDigits(7);
   const cents = centsFromKeypadDigits(digits);
   return (
-    <Modal title="Lottery payout" onClose={onClose}>
-      <div className="hint">Cash paid out to a winner. This is counted against the drawer at the end of the shift.</div>
+    <Modal title="Lottery winnings" onClose={onClose}>
+      <div className="hint">Type the amount on the winning ticket. It pays for anything they buy; whatever is left is handed back in cash. Counted as a lottery payout on the day report.</div>
       <div className="display num">{formatCents(cents)}</div>
       <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={() => { if (cents > 0) onSave(cents); }} />
-      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={cents <= 0} onClick={() => onSave(cents)}>Record payout</button>
+      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={cents <= 0} onClick={() => onSave(cents)}>Add winnings to ticket</button>
     </Modal>
   );
 }
@@ -362,8 +363,8 @@ export function ReceiptModal({ receipt, onDone }: { receipt: Receipt; onDone: ()
   const when = new Date(receipt.createdAt).toLocaleString('en-US', { timeZone: 'America/New_York' });
   return (
     <Modal title="Sale complete">
-      {(receipt.payment.tender === 'cash' || receipt.payment.tender === 'check') && receipt.payment.changeCents !== null && (
-        <div className="change"><span>{receipt.payment.tender === 'check' ? 'Cash to customer' : 'Change due'}</span><span className="num">{formatCents(receipt.payment.changeCents)}</span></div>
+      {(receipt.payment.tender === 'cash' || receipt.payment.tender === 'check' || receipt.payment.tender === 'lottery') && receipt.payment.changeCents !== null && (
+        <div className="change"><span>{receipt.payment.tender === 'cash' ? 'Change due' : 'Cash to customer'}</span><span className="num">{formatCents(receipt.payment.changeCents)}</span></div>
       )}
       <div className="receipt" id="receipt">
         <div className="c"><b>{receipt.store.name}</b><br />{receipt.store.address}{receipt.store.phone ? <><br />{receipt.store.phone}</> : null}</div>
@@ -391,6 +392,11 @@ export function ReceiptModal({ receipt, onDone }: { receipt: Receipt; onDone: ()
         ) : receipt.payment.tender === 'check' ? (
           <>
             <div className="r"><span>Check</span><span>{formatCents(receipt.payment.tenderedCents ?? 0)}</span></div>
+            <div className="r"><span><b>Cash to customer</b></span><span><b>{formatCents(receipt.payment.changeCents ?? 0)}</b></span></div>
+          </>
+        ) : receipt.payment.tender === 'lottery' ? (
+          <>
+            <div className="r"><span>Winning ticket</span><span>{formatCents(receipt.payment.tenderedCents ?? 0)}</span></div>
             <div className="r"><span><b>Cash to customer</b></span><span><b>{formatCents(receipt.payment.changeCents ?? 0)}</b></span></div>
           </>
         ) : receipt.payment.tender === 'tab' ? (

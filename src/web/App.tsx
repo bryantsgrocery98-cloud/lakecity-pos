@@ -137,6 +137,8 @@ export function App() {
   // Checks being cashed on this ticket: the customer pays with them and gets the rest back in cash.
   const checkCents = lines.filter((l) => l.kind === 'service' && l.service === 'check_fee').reduce((s, l) => s + (l.baseCents ?? 0), 0);
   const checkCashBack = checkCents - totals.totalCents;
+  const winCents = lines.filter((l) => l.kind === 'service' && l.service === 'lottery_win').reduce((s, l) => s + (l.baseCents ?? 0), 0);
+  const winCashBack = winCents - totals.totalCents;
 
   // Customer screen: mirror the ticket as it changes, and the result after a sale.
   useEffect(() => {
@@ -315,7 +317,7 @@ export function App() {
     return { kind: 'button', buttonId: l.buttonId ?? undefined, qty: l.qty };
   };
 
-  const completeSale = async (payment: { tender: 'cash' | 'card' | 'check' | 'tab'; tenderedCents?: number; reference?: string; customerId?: number }, extraLines: TicketLine[] = []) => {
+  const completeSale = async (payment: { tender: 'cash' | 'card' | 'check' | 'tab' | 'lottery'; tenderedCents?: number; reference?: string; customerId?: number }, extraLines: TicketLine[] = []) => {
     if (!user) return;
     setBusy(true); setPayError('');
     try {
@@ -575,6 +577,15 @@ export function App() {
             </div>
           )}
 
+          {winCents > 0 && (
+            <div className="pay" style={{ paddingBottom: 0 }}>
+              <button className="btn" style={{ flex: 1, minHeight: 64, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', textAlign: 'left', padding: '0 16px', background: '#7a3fb5', color: '#fff', borderColor: '#7a3fb5' }} disabled={!canPay || winCashBack < 0}
+                onClick={() => { if (!canPay) return; setPayError(''); completeSale({ tender: 'lottery', tenderedCents: winCents }); }}>
+                <span style={{ fontSize: 20 }}>WINNINGS {formatCents(winCents)}</span>
+                <span style={{ fontWeight: 500, fontSize: 15, textAlign: 'right', lineHeight: 1.1 }}>{winCashBack >= 0 ? <>cash to customer<br /><b style={{ fontSize: 18 }}>{formatCents(winCashBack)}</b></> : 'winnings do not cover the ticket'}</span>
+              </button>
+            </div>
+          )}
           {checkCents > 0 && (
             <div className="pay" style={{ paddingBottom: 0 }}>
               <button className="btn btn-dark" style={{ flex: 1, minHeight: 64, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', textAlign: 'left', padding: '0 16px' }} disabled={!canPay || checkCashBack < 0}
@@ -666,7 +677,7 @@ export function App() {
             <button className="svc" onClick={() => setModal({ t: 'gas' })}><Icon name="gas" size={28} /><span>Gas<small>Enter the amount</small></span></button>
             <button className="svc" onClick={() => setModal({ t: 'check' })}><Icon name="check" size={28} /><span>Cash a Check<small>{formatCents(boot.settings.checkFeeCents)} fee</small></span></button>
             <button className="svc" onClick={() => { const b = btnByName('Non-listed Item'); if (b) tapButton(b); }}><Icon name="tag" size={28} /><span>Non-listed Item<small>Enter the price</small></span></button>
-            <button className="svc" onClick={() => setModal({ t: 'payout' })}><Icon name="payout" size={28} /><span>Lottery Payout<small>Cash paid out</small></span></button>
+            <button className="svc" onClick={() => setModal({ t: 'payout' })}><Icon name="payout" size={28} /><span>Lottery Winnings<small>Pays for the ticket, rest in cash</small></span></button>
           </div>
 
           <div className="actions">
@@ -714,9 +725,10 @@ export function App() {
         pushLine({ kind: 'lottery', name: `Lottery ${qty} x $${(unit / 100).toFixed(2)}`, qty, unitCents: unit, authorityId: null, category: 'Lottery', ageMin: null });
         setModal(null);
       }} />}
-      {modal?.t === 'payout' && <PayoutModal onClose={() => setModal(null)} onSave={async (cents) => {
-        try { await api('/api/lottery-payout', { cashier: user.name, amountCents: cents }); showToast(`Lottery payout of ${formatCents(cents)} recorded.`); setModal(null); }
-        catch (e) { showToast((e as Error).message, true); }
+      {modal?.t === 'payout' && <PayoutModal onClose={() => setModal(null)} onSave={(cents) => {
+        pushLine({ kind: 'service', service: 'lottery_win', name: `Lottery winnings (ticket ${formatCents(cents)})`, qty: 1, unitCents: 0, baseCents: cents, authorityId: null, category: 'Lottery', ageMin: null });
+        setModal(null);
+        showToast(`Winning ticket ${formatCents(cents)} on the ticket. Ring up anything they're buying, then press WINNINGS.`);
       }} />}
       {modal?.t === 'qty' && <QtyModal current={lines.find((l) => l.key === modal.key)?.qty ?? 1} onClose={() => setModal(null)} onSet={(n) => {
         const key = modal.key;

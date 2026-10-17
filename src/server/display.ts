@@ -16,7 +16,7 @@ export type DisplayState = {
   discountCents: number;
   totalCents: number;
   /** After a sale. */
-  tender?: 'cash' | 'card' | 'check' | 'tab';
+  tender?: 'cash' | 'card' | 'check' | 'tab' | 'lottery';
   customerName?: string;
   tenderedCents?: number;
   changeCents?: number;

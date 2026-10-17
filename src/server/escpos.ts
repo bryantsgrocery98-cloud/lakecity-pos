@@ -67,6 +67,9 @@ export function receiptBytes(r: Receipt, opts: { kickDrawer?: boolean; cols?: nu
   } else if (r.payment.tender === 'check') {
     p.row('Check', formatCents(r.payment.tenderedCents ?? r.totals.totalCents));
     p.bold(true).row('Cash to customer', formatCents(r.payment.changeCents ?? 0)).bold(false);
+  } else if (r.payment.tender === 'lottery') {
+    p.row('Winning ticket', formatCents(r.payment.tenderedCents ?? r.totals.totalCents));
+    p.bold(true).row('Cash to customer', formatCents(r.payment.changeCents ?? 0)).bold(false);
   } else if (r.payment.tender === 'tab') {
     p.bold(true).row('ON TAB', r.payment.customerName ?? r.payment.reference ?? '').bold(false);
     if (r.payment.tabBalanceCents !== null && r.payment.tabBalanceCents !== undefined) p.row('Tab balance now', formatCents(r.payment.tabBalanceCents));
