@@ -1,7 +1,7 @@
 {
-  "version": "0.11.3",
-  "file": "lakecity-pos-0.11.3.zip",
-  "sha256": "025c4b66b49a8c9ba093d777c5184333afc10c69a0d7faba1e8e09af116b33ca",
-  "notes": "Bright green CASH button with a dollar sign.",
-  "builtAt": "2026-10-17T18:02:44.126Z"
+  "version": "0.11.4",
+  "file": "lakecity-pos-0.11.4.zip",
+  "sha256": "e7318c91df82a6fa08e6239f5e98a6357f52c85709b892a2684a7e2eeb497f95",
+  "notes": "Blue CARD button with a card symbol.",
+  "builtAt": "2026-10-17T18:04:54.482Z"
 }
