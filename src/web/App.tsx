@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatCents } from '../core/money';
 import { looksLikeId, parseIdForAge } from '../core/aamva';
-import { computeTotals, type TicketLine, checkFeeCents, checkFeeLabel } from '../core/ticket';
+import { computeTotals, dealLabel, type TicketLine, checkFeeCents, checkFeeLabel } from '../core/ticket';
 import type { Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleLineInput } from '../core/types';
 import { ApiError, api } from './api';
 import {
@@ -180,7 +180,7 @@ export function App() {
   const addItem = (it: ItemDto) => {
     if (!tapOk(`i${it.id}`)) return;
     pushLine({ kind: 'item', name: it.size ? `${it.name} ${it.size}` : it.name, qty: 1, unitCents: it.priceCents, authorityId: it.authorityId,
-      category: it.category, ageMin: it.ageMin, itemId: it.id });
+      category: it.category, ageMin: it.ageMin, itemId: it.id, dealQty: it.dealQty, dealCents: it.dealCents });
   };
 
   const tapButton = (b: ButtonDto) => {
@@ -524,9 +524,12 @@ export function App() {
                       {l.name}{l.ageMin !== null && <span className="age-tag">{l.ageMin}+</span>}
                       <span className="meta">
                         {l.kind === 'lottery' ? 'No tax · counted separately' : `${pctLabel(l.authorityId)} · ${l.qty} × ${formatCents(l.unitCents)}`}
+                        {l.dealQty && l.dealCents !== null && l.dealCents !== undefined && <span className="deal-tag">{dealLabel(l.dealQty, l.dealCents)}{(amt?.discountCents ?? 0) > 0 ? ` · −${formatCents(amt!.discountCents)}` : ''}</span>}
                       </span>
                     </span>
-                    <span className="amt num">{formatCents(amt?.grossCents ?? 0)}</span>
+                    <span className="amt num">{(amt?.discountCents ?? 0) > 0 && discountPct === 0
+                      ? <><s style={{ color: 'var(--ink-3)', fontWeight: 400, fontSize: 15, marginRight: 6 }}>{formatCents(amt!.grossCents)}</s>{formatCents(amt!.netCents)}</>
+                      : formatCents(amt?.grossCents ?? 0)}</span>
                   </button>
                   {on && (
                     <div className="line-tools">
@@ -611,7 +614,7 @@ export function App() {
                   <button key={i.id} className="item" onClick={(e) => { if (e.detail === 0) return; addItem(i); }}>
                     {imageUrl(i.id, i.imageVersion) ? <img className="ph ph-img" src={imageUrl(i.id, i.imageVersion)!} alt="" /> : <div className="ph" style={{ background: i.color }}><CategoryArt category={i.category} name={i.name} size={40} /></div>}
                     <div className="nm">{i.name}{i.size ? ` ${i.size}` : ''}{i.ageMin !== null && <span className="age-tag">{i.ageMin}+</span>}</div>
-                    <div className="pr num">{formatCents(i.priceCents)}</div>
+                    <div className="pr num">{formatCents(i.priceCents)}{i.dealQty && i.dealCents !== null && <span className="deal-tag">{dealLabel(i.dealQty, i.dealCents)}</span>}</div>
                   </button>
                 ))}
                 {results.length === 0 && <div className="empty-page" style={{ gridColumn: '1 / -1' }}>No items match “{search}”.</div>}
@@ -641,7 +644,7 @@ export function App() {
                   <button key={i.id} className="item" onClick={(e) => { if (e.detail === 0) return; addItem(i); }}>
                     {imageUrl(i.id, i.imageVersion) ? <img className="ph ph-img" src={imageUrl(i.id, i.imageVersion)!} alt="" /> : <div className="ph" style={{ background: i.color }}><CategoryArt category={i.category} name={i.name} size={40} /></div>}
                     <div className="nm">{i.name}{i.size ? ` ${i.size}` : ''}</div>
-                    <div className="pr num">{formatCents(i.priceCents)}</div>
+                    <div className="pr num">{formatCents(i.priceCents)}{i.dealQty && i.dealCents !== null && <span className="deal-tag">{dealLabel(i.dealQty, i.dealCents)}</span>}</div>
                   </button>
                 ))}
               </div>

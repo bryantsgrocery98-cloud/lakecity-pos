@@ -6,7 +6,7 @@ import { Icon, Keypad, Modal, OnScreenKeyboard } from './parts';
 import { CategoryArt } from './art';
 
 export type InventoryItem = {
-  id: number; name: string; size: string | null; priceCents: number; costCents: number | null; category: string;
+  id: number; name: string; size: string | null; priceCents: number; costCents: number | null; category: string; dealQty?: number | null; dealCents?: number | null;
   authorityId: number | null; ageMin: number | null; qtyOnHand: number; active: boolean; frequent: boolean;
   color: string; imageVersion: number; barcodes: string[];
 };
@@ -272,15 +272,15 @@ export function Thumb({ item, size }: { item: { id: number; name: string; color:
 
 // ---------- editor ----------
 
-type Draft = { name: string; size: string; priceCents: number; costCents: number | null; category: string; authorityId: number | null; ageMin: number | null; qtyOnHand: number; frequent: boolean; active: boolean };
+type Draft = { name: string; size: string; priceCents: number; costCents: number | null; category: string; authorityId: number | null; ageMin: number | null; qtyOnHand: number; frequent: boolean; active: boolean; dealQty: number | null; dealCents: number | null };
 
 function ItemEditor({ item, authorities, cats, pin, cashier, onDone, onCancel }: {
   item: InventoryItem | null; authorities: Authority[]; cats: string[]; pin: string; cashier: string; onDone: (it: InventoryItem | null) => void; onCancel: () => void;
 }) {
-  const [d, setD] = useState<Draft>(item ? { name: item.name, size: item.size ?? '', priceCents: item.priceCents, costCents: item.costCents, category: item.category, authorityId: item.authorityId, ageMin: item.ageMin, qtyOnHand: item.qtyOnHand, frequent: item.frequent, active: item.active }
-    : { name: '', size: '', priceCents: 0, costCents: null, category: cats[0] ?? 'Snacks', authorityId: authorities[0]?.id ?? null, ageMin: null, qtyOnHand: 0, frequent: false, active: true });
+  const [d, setD] = useState<Draft>(item ? { name: item.name, size: item.size ?? '', priceCents: item.priceCents, costCents: item.costCents, category: item.category, authorityId: item.authorityId, ageMin: item.ageMin, qtyOnHand: item.qtyOnHand, frequent: item.frequent, active: item.active, dealQty: item.dealQty ?? null, dealCents: item.dealCents ?? null }
+    : { name: '', size: '', priceCents: 0, costCents: null, category: cats[0] ?? 'Snacks', authorityId: authorities[0]?.id ?? null, ageMin: null, qtyOnHand: 0, frequent: false, active: true, dealQty: null, dealCents: null });
   const [text, setText] = useState<null | 'name' | 'size' | 'category' | 'barcode'>(null);
-  const [num, setNum] = useState<null | 'price' | 'cost' | 'stock'>(null);
+  const [num, setNum] = useState<null | 'price' | 'cost' | 'stock' | 'dealQty' | 'dealCents'>(null);
   const [cam, setCam] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -355,6 +355,13 @@ function ItemEditor({ item, authorities, cats, pin, cashier, onDone, onCancel }:
         <Field label="Cost" value={d.costCents === null ? '—' : formatCents(d.costCents)} onEdit={() => setNum('cost')} />
         <Field label="In stock" value={String(d.qtyOnHand)} onEdit={() => setNum('stock')} />
       </div>
+      <div className="editor-label">DEAL (optional) — e.g. 2 for $1.00</div>
+      <div className="editor-row">
+        <Field label="How many" value={d.dealQty ? String(d.dealQty) : '—'} onEdit={() => setNum('dealQty')} />
+        <Field label="For" value={d.dealCents !== null ? formatCents(d.dealCents) : '—'} onEdit={() => setNum('dealCents')} />
+        <button className="btn" style={{ alignSelf: 'end', minHeight: 52 }} disabled={d.dealQty === null && d.dealCents === null} onClick={() => { set('dealQty', null); set('dealCents', null); }}>No deal</button>
+      </div>
+      {d.dealQty && d.dealCents !== null && <div className="hint">Customers pay {formatCents(d.dealCents)} for every {d.dealQty}; extra ones ring at {formatCents(d.priceCents)} each. Works across the whole ticket automatically.</div>}
       <Field label="Category" value={d.category} onEdit={() => setText('category')} />
       <div className="editor-label">TAX OR FEE</div>
       <div className="chips">
@@ -388,8 +395,14 @@ function ItemEditor({ item, authorities, cats, pin, cashier, onDone, onCancel }:
 
       {text && <TextModal title={text === 'barcode' ? 'Barcode' : text[0]!.toUpperCase() + text.slice(1)} initial={text === 'barcode' ? '' : text === 'category' ? d.category : d[text]} suggestions={text === 'category' ? cats : undefined}
         onClose={() => setText(null)} onOk={(v) => { if (text === 'barcode') addBarcode(v.trim()); else set(text, v.trim()); setText(null); }} />}
-      {num && <NumberModal title={num === 'price' ? 'Price' : num === 'cost' ? 'Cost' : 'Count in stock'} money={num !== 'stock'} current={num === 'price' ? d.priceCents : num === 'cost' ? d.costCents ?? 0 : d.qtyOnHand}
-        onClose={() => setNum(null)} onOk={(v) => { if (num === 'price') set('priceCents', v); else if (num === 'cost') set('costCents', v); else set('qtyOnHand', v); setNum(null); }} />}
+      {num && <NumberModal title={num === 'price' ? 'Price' : num === 'cost' ? 'Cost' : num === 'stock' ? 'Count in stock' : num === 'dealQty' ? 'Deal: how many' : 'Deal: price for the group'}
+        money={num === 'price' || num === 'cost' || num === 'dealCents'}
+        current={num === 'price' ? d.priceCents : num === 'cost' ? d.costCents ?? 0 : num === 'stock' ? d.qtyOnHand : num === 'dealQty' ? d.dealQty ?? 2 : d.dealCents ?? 0}
+        onClose={() => setNum(null)} onOk={(v) => {
+          if (num === 'price') set('priceCents', v); else if (num === 'cost') set('costCents', v); else if (num === 'stock') set('qtyOnHand', v);
+          else if (num === 'dealQty') set('dealQty', v >= 2 ? v : null); else set('dealCents', v);
+          setNum(null);
+        }} />}
       {cam && <CameraModal onClose={() => setCam(false)} onShot={(b) => { setCam(false); uploadImage(b); }} />}
     </div>
   );

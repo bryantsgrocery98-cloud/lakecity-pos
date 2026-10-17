@@ -18,6 +18,9 @@ export type ItemDto = {
   frequent: boolean;
   hasBarcode: boolean;
   imageVersion: number;
+  /** Multi-buy deal, e.g. 2 for $1.00. */
+  dealQty: number | null;
+  dealCents: number | null;
 };
 
 export type ButtonDto = {

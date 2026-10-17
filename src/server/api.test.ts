@@ -312,3 +312,18 @@ describe('gas and check cashing', () => {
     expect(day.byCategory.some((c) => c.category === 'Gas')).toBe(true);
   });
 });
+
+describe('deal pricing through the API', () => {
+  it('saves a deal on an item and applies it on a sale', async () => {
+    const it = item('Cola');
+    const r = await post(`/api/items/${it.id}`, { pin: '2222', cashier: 'Mgr', dealQty: 2, dealCents: 300 });
+    expect(r.status).toBe(200);
+    const saved = (await r.json()) as { dealQty: number; dealCents: number };
+    expect(saved.dealQty).toBe(2);
+    const sale = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'item', itemId: it.id, qty: 1 }, { kind: 'item', itemId: it.id, qty: 1 }], payment: { tender: 'cash', tenderedCents: 1000 } });
+    expect(sale.status).toBe(200);
+    const rc = (await sale.json()) as Receipt;
+    expect(rc.totals.subtotalCents - rc.totals.discountCents).toBe(300);
+    await post(`/api/items/${it.id}`, { pin: '2222', cashier: 'Mgr', dealQty: null, dealCents: null });
+  });
+});

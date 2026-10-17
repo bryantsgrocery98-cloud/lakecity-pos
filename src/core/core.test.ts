@@ -181,3 +181,22 @@ describe('ID line field order', () => {
     expect(r.ok && r.expired).toBe(false);
   });
 });
+
+describe('multi-buy deals', () => {
+  it('prices 2 for $1.00 across separate lines, leftovers at unit price', async () => {
+    const { computeTotals } = await import('./ticket.js');
+    const auth = [{ id: 1, title: 'Food and Drink', type: 'tax' as const, rateBp: 100, flatCents: null }];
+    const line = (key: string) => ({ key, kind: 'item' as const, name: 'Red Hot Sausage', qty: 1, unitCents: 65, authorityId: 1, category: 'Food', ageMin: null, itemId: 7, dealQty: 2, dealCents: 100 });
+    const one = computeTotals([line('a')], auth);
+    expect(one.totals.discountCents).toBe(0);
+    expect(one.totals.subtotalCents).toBe(65);
+    const two = computeTotals([line('a'), line('b')], auth);
+    expect(two.totals.subtotalCents).toBe(130);
+    expect(two.totals.discountCents).toBe(30);           // $1.30 -> $1.00
+    expect(two.totals.totalCents).toBe(101);             // + 1% tax on $1.00
+    const three = computeTotals([line('a'), line('b'), line('c')], auth);
+    expect(three.totals.subtotalCents - three.totals.discountCents).toBe(165); // $1.00 + $0.65
+    const five = computeTotals([line('a'), line('b'), line('c'), line('d'), line('e')], auth);
+    expect(five.totals.subtotalCents - five.totals.discountCents).toBe(265); // 2 deals + 1 single
+  });
+});

@@ -30,7 +30,7 @@ export class DB {
   close(): void { this.raw.close(); }
 }
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS items (
   cost_cents INTEGER, category TEXT NOT NULL, authority_id INTEGER REFERENCES authorities(id),
   age_min INTEGER, fee_multiplier INTEGER NOT NULL DEFAULT 1, qty_on_hand INTEGER NOT NULL DEFAULT 0,
   color TEXT NOT NULL DEFAULT '#5B6B78', frequent INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
-  image_version INTEGER NOT NULL DEFAULT 0);
+  image_version INTEGER NOT NULL DEFAULT 0, deal_qty INTEGER, deal_cents INTEGER);
 CREATE TABLE IF NOT EXISTS barcodes (code TEXT PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES items(id));
 CREATE TABLE IF NOT EXISTS pages (id INTEGER PRIMARY KEY, name TEXT NOT NULL, pos INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS buttons (
@@ -136,6 +136,7 @@ function migrate(db: DB): void {
         DROP TABLE payments;
         ALTER TABLE payments_v4 RENAME TO payments;`);
     }
+    if (current < 5) db.exec(`ALTER TABLE items ADD COLUMN deal_qty INTEGER; ALTER TABLE items ADD COLUMN deal_cents INTEGER;`);
   }
   db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
 }

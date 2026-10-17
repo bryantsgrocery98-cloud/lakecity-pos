@@ -77,6 +77,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
       .map((r): ItemDto => ({
         id: r.id, name: r.name, size: r.size, priceCents: r.price_cents, category: r.category,
         authorityId: r.authority_id, ageMin: r.age_min, color: r.color, frequent: !!r.frequent, hasBarcode: !!r.has_bc, imageVersion: r.image_version,
+        dealQty: r.deal_qty ?? null, dealCents: r.deal_cents ?? null,
       }));
     const pages = (db.prepare(`SELECT id, name FROM pages ORDER BY pos`).all() as { id: number; name: string }[])
       .map((p) => ({
@@ -440,6 +441,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     id: r.id, name: r.name, size: r.size, priceCents: r.price_cents, costCents: r.cost_cents, category: r.category,
     authorityId: r.authority_id, ageMin: r.age_min, qtyOnHand: r.qty_on_hand, active: !!r.active, frequent: !!r.frequent,
     color: r.color, imageVersion: r.image_version, barcodes: r.codes ? String(r.codes).split(' ') : [], hasBarcode: !!r.codes,
+    dealQty: r.deal_qty ?? null, dealCents: r.deal_cents ?? null,
   });
   const ITEM_SQL = `SELECT i.*, (SELECT GROUP_CONCAT(code, ' ') FROM barcodes b WHERE b.item_id = i.id) AS codes FROM items i`;
 
@@ -451,7 +453,8 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   app.get('/api/categories', wrap((_req, res) => res.json(categories())));
 
   type ItemBody = { pin?: string; cashier?: string; name?: string; size?: string | null; priceCents?: number; costCents?: number | null;
-    category?: string; authorityId?: number | null; ageMin?: number | null; qtyOnHand?: number; frequent?: boolean; active?: boolean; reason?: string };
+    category?: string; authorityId?: number | null; ageMin?: number | null; qtyOnHand?: number; frequent?: boolean; active?: boolean; reason?: string;
+    dealQty?: number | null; dealCents?: number | null };
 
   function validateItem(b: ItemBody, partial: boolean) {
     const out: Record<string, unknown> = {};
@@ -478,6 +481,14 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     if (b.authorityId !== undefined) {
       if (b.authorityId !== null && !db.prepare(`SELECT 1 FROM authorities WHERE id = ?`).get(b.authorityId)) throw new HttpError(400, 'That tax does not exist.');
       out.authority_id = b.authorityId;
+    }
+    if (b.dealQty !== undefined || b.dealCents !== undefined) {
+      const q = b.dealQty ?? null, c = b.dealCents ?? null;
+      if (q === null || c === null || q < 2) { out.deal_qty = null; out.deal_cents = null; }
+      else {
+        if (!Number.isInteger(q) || q > 100 || !Number.isInteger(c) || c < 0 || c > 10_000_000) throw new HttpError(400, 'That deal is not valid. Example: 2 for $1.00.');
+        out.deal_qty = q; out.deal_cents = c;
+      }
     }
     if (b.ageMin !== undefined) {
       if (b.ageMin !== null && (!Number.isInteger(b.ageMin) || b.ageMin < 1 || b.ageMin > 99)) throw new HttpError(400, 'That minimum age is not valid.');
@@ -792,7 +803,7 @@ function buildLine(db: DB, l: SaleLineInput, i: number): TicketLine {
     if (!r) throw new HttpError(400, 'An item on the ticket no longer exists.');
     const name = r.size ? `${r.name} ${r.size}` : r.name;
     return { key, kind: 'item', name, qty: l.qty, unitCents: r.price_cents, authorityId: r.authority_id, category: r.category,
-      ageMin: r.age_min, feeMultiplier: r.fee_multiplier, itemId: r.id };
+      ageMin: r.age_min, feeMultiplier: r.fee_multiplier, itemId: r.id, dealQty: r.deal_qty ?? null, dealCents: r.deal_cents ?? null };
   }
   if (l.kind === 'button' || l.kind === 'ask') {
     const b = db.prepare(`SELECT * FROM buttons WHERE id = ?`).get(l.buttonId) as Record<string, any> | undefined;
