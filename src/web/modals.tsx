@@ -526,7 +526,6 @@ export function PowerModal({ ticketOpen, onClose, onPick }: { ticketOpen: boolea
       <button className="btn btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('restart')}>Restart the register</button>
       <button className="btn btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('quit')}>Close the register</button>
       <button className="btn btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('reboot')}>Restart the computer</button>
-      <button className="btn btn-danger btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('poweroff')}>Shut down the computer</button>
     </Modal>
   );
 }
