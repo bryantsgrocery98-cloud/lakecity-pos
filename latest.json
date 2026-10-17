@@ -1,7 +1,7 @@
 {
-  "version": "0.11.6",
-  "file": "lakecity-pos-0.11.6.zip",
-  "sha256": "6e30096b054e3a0c0ac2d12a779c48f101c90d78719d1ace0b430d045fcc2c2a",
-  "notes": "Picture lookup: waits longer for the product database, falls back to its older endpoint, and shows the real error when it cannot be reached.",
-  "builtAt": "2026-10-17T18:21:30.974Z"
+  "version": "0.11.7",
+  "file": "lakecity-pos-0.11.7.zip",
+  "sha256": "9d441d745a3df62e9aba7e88b9b89e374fc8fc7e8d934d63306a386599afb4db",
+  "notes": "Lottery: one short screen, just type the amount.",
+  "builtAt": "2026-10-17T18:33:21.793Z"
 }
