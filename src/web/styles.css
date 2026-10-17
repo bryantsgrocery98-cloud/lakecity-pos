@@ -283,3 +283,6 @@ table.rep td:last-child { text-align: right; }
 .btn-cash { background: #15a34a; color: #fff; border-color: #15a34a; font-weight: 800; letter-spacing: .03em; }
 .btn-cash:disabled { background: #a9d9bb; border-color: #a9d9bb; color: #f4fbf6; }
 .btn-cash .cash-sign { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,.22); font-size: 20px; margin-right: 6px; }
+
+.btn-card { background: #1d5fd1; color: #fff; border-color: #1d5fd1; font-weight: 800; letter-spacing: .03em; gap: 8px; }
+.btn-card:disabled { background: #a9c2ec; border-color: #a9c2ec; color: #f3f7ff; }

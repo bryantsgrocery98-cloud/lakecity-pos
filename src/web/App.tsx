@@ -586,7 +586,7 @@ export function App() {
           )}
           <div className="pay">
             <button className="btn btn-cash" disabled={!canPay} onClick={() => startPay('cash')}><span className="cash-sign">$</span> CASH</button>
-            <button className="btn btn-primary" disabled={!canPay} onClick={() => startPay('card')}>CARD</button>
+            <button className="btn btn-card" disabled={!canPay} onClick={() => startPay('card')}><Icon name="card" size={26} /> CARD</button>
             <button className="btn btn-dark" style={{ flex: 0.7 }} disabled={!canPay} onClick={() => { if (!canPay) return; setPayError(''); setModal({ t: 'tabpick' }); }}>TAB</button>
           </div>
           {lines.length > 0 && (
