@@ -1,7 +1,7 @@
 {
-  "version": "0.12.2",
-  "file": "lakecity-pos-0.12.2.zip",
-  "sha256": "afbe02d03ebf5b08b9f7e8e508f39c755343cec747fa853455b9d7926ba9bb40",
-  "notes": "Quick buttons show the product picture; old one-click buttons are matched to their items.",
-  "builtAt": "2026-10-17T18:50:06.254Z"
+  "version": "0.12.3",
+  "file": "lakecity-pos-0.12.3.zip",
+  "sha256": "d3bc5a4e39e459c0c391470de4cbf2928aa15e16df2a2bf88305a95cdf385339",
+  "notes": "Manual Item: amount + tax group + category, never asks for ID.",
+  "builtAt": "2026-10-17T19:03:52.679Z"
 }
