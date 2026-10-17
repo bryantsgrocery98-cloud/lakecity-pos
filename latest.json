@@ -1,7 +1,7 @@
 {
-  "version": "0.9.3",
-  "file": "lakecity-pos-0.9.3.zip",
-  "sha256": "5e6bdaf6fb4b401e1552abdacef4ca22950962d4a383afb1cc68ed27819cce0b",
-  "notes": "Power button: refresh screen, restart or close the register, restart or shut down the computer.",
-  "builtAt": "2026-10-17T13:06:21.934Z"
+  "version": "0.9.4",
+  "file": "lakecity-pos-0.9.4.zip",
+  "sha256": "10fb4396b33d9481add3876cee29b2ea7dd8927850313898b9c85a67c61137d5",
+  "notes": "Customer screen: white background, opens by itself whenever a second monitor is detected.",
+  "builtAt": "2026-10-17T16:45:01.608Z"
 }
