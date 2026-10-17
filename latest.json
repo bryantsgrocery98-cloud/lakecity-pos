@@ -1,7 +1,7 @@
 {
-  "version": "0.9.5",
-  "file": "lakecity-pos-0.9.5.zip",
-  "sha256": "aaeb2dd6b55d7c47489f176dfbe7e2db5608ba5dcf5887fd130739820312b02a",
-  "notes": "Multi-buy deals: set '2 for $1.00' on an item; the register applies it across the ticket automatically.",
-  "builtAt": "2026-10-17T16:54:45.404Z"
+  "version": "0.9.6",
+  "file": "lakecity-pos-0.9.6.zip",
+  "sha256": "8024863e3575122c7950d56ae65284cb7c9eed61499fee040cb6e287a4107c0f",
+  "notes": "Add-new-item and link screens keep the Save button on screen.",
+  "builtAt": "2026-10-17T16:55:48.868Z"
 }
