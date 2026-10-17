@@ -1,7 +1,7 @@
 {
-  "version": "0.9.4",
-  "file": "lakecity-pos-0.9.4.zip",
-  "sha256": "10fb4396b33d9481add3876cee29b2ea7dd8927850313898b9c85a67c61137d5",
-  "notes": "Customer screen: white background, opens by itself whenever a second monitor is detected.",
-  "builtAt": "2026-10-17T16:45:01.608Z"
+  "version": "0.9.5",
+  "file": "lakecity-pos-0.9.5.zip",
+  "sha256": "aaeb2dd6b55d7c47489f176dfbe7e2db5608ba5dcf5887fd130739820312b02a",
+  "notes": "Multi-buy deals: set '2 for $1.00' on an item; the register applies it across the ticket automatically.",
+  "builtAt": "2026-10-17T16:54:45.404Z"
 }
