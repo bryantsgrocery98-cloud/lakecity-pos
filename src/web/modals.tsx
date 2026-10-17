@@ -252,7 +252,10 @@ export function LinkModal({ code, items, lookup, onClose, onLink, onNew, error }
   useTypedText({ onChar: (c) => setQ((s) => s + c), onBack: () => setQ((s) => s.slice(0, -1)), allowDigits: true });
   const matches = items.filter((i) => !i.hasBarcode && `${i.name} ${i.size ?? ''}`.toLowerCase().includes(q.toLowerCase())).slice(0, 5);
   return (
-    <Modal title="New barcode" onClose={onClose} wide>
+    <Modal title="New barcode" onClose={onClose} wide footer={<>
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 56 }} disabled={sel === null} onClick={() => sel !== null && onLink(sel)}>{sel === null ? 'Pick an item below to link, or add as new above' : 'Link and add to ticket'}</button>
+    </>}>
       <div style={{ padding: '10px 14px', borderRadius: 12, background: 'var(--warn-bg)', border: '2px solid var(--warn-line)', color: 'var(--warn-ink)' }}>
         <div className="hint" style={{ color: 'inherit', fontWeight: 600 }}>SCANNED, NOT IN THE SYSTEM YET</div>
         <div className="num" style={{ fontSize: 26, letterSpacing: '.04em' }}>{code}</div>
@@ -274,8 +277,6 @@ export function LinkModal({ code, items, lookup, onClose, onLink, onNew, error }
       ))}
       {matches.length === 0 && <div className="hint">No items without a barcode match that search.</div>}
       <OnScreenKeyboard onChar={(c) => setQ((s) => s + c)} onBack={() => setQ((s) => s.slice(0, -1))} onClear={() => setQ('')} />
-      {error && <div className="err">{error}</div>}
-      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={sel === null} onClick={() => sel !== null && onLink(sel)}>Link and add to ticket</button>
     </Modal>
   );
 }
@@ -306,7 +307,10 @@ export function NewItemModal({ code, lookup, categories, authorities, onClose, o
   const ok = name.trim().length > 0 && price > 0;
   const save = () => { if (ok && !busy) onSave({ name: name.trim(), size: lookup?.size ?? null, priceCents: price, category, authorityId, ageMin, imageUrl: lookup?.imageUrl ?? null }); };
   return (
-    <Modal title="Add new item" onClose={onClose} wide>
+    <Modal title="Add new item" onClose={onClose} wide footer={<>
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 56 }} disabled={!ok || busy} onClick={save}>{busy ? 'Saving…' : `Save and add to ticket${price > 0 ? ` · ${formatCents(price)}` : ''}`}</button>
+    </>}>
       <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
         {lookup?.imageUrl && <img src={lookup.imageUrl} alt="" style={{ width: 72, height: 72, objectFit: 'contain', borderRadius: 10, background: '#fff', border: '1px solid var(--line)' }} />}
         <div style={{ flex: 1 }}>
@@ -329,8 +333,6 @@ export function NewItemModal({ code, lookup, categories, authorities, onClose, o
       <div className="field-label">PRICE</div>
       <div className="display num" aria-label="Price">{formatCents(price)}</div>
       {!kb && <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={save} />}
-      {error && <div className="err">{error}</div>}
-      <button className="btn btn-primary btn-block" style={{ minHeight: 60 }} disabled={!ok || busy} onClick={save}>{busy ? 'Saving…' : 'Save and add to ticket'}</button>
     </Modal>
   );
 }

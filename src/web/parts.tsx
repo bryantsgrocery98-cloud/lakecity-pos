@@ -113,15 +113,17 @@ export function OnScreenKeyboard({ onChar, onBack, onClear, onDone }: {
   );
 }
 
-export function Modal({ title, children, onClose, wide }: { title: string; children: ReactNode; onClose?: () => void; wide?: boolean }) {
+export function Modal({ title, children, onClose, wide, footer }: { title: string; children: ReactNode; onClose?: () => void; wide?: boolean; footer?: ReactNode }) {
+  // With a footer, the body scrolls and the footer (the confirm button) stays pinned at the bottom of the pop-up.
   return (
     <div className="scrim" role="dialog" aria-modal="true" aria-label={title}>
-      <div className={`modal ${wide ? 'modal-wide' : ''}`}>
+      <div className={`modal ${wide ? 'modal-wide' : ''} ${footer ? 'modal-pinned' : ''}`}>
         <div className="modal-head">
           <h2>{title}</h2>
           {onClose && <button className="btn btn-quiet" onClick={onClose}>Close</button>}
         </div>
-        {children}
+        {footer ? <div className="modal-body">{children}</div> : children}
+        {footer && <div className="modal-foot">{footer}</div>}
       </div>
     </div>
   );
