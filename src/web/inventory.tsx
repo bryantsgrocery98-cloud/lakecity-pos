@@ -497,7 +497,7 @@ async function shrinkToJpeg(blob: Blob, max: number): Promise<string> {
   return c.toDataURL('image/jpeg', 0.85);
 }
 
-type FindJob = { total: number; done: number; found: number; running: boolean; startedAt: string | null; finishedAt: string | null };
+type FindJob = { total: number; done: number; found: number; running: boolean; startedAt: string | null; finishedAt: string | null; lastError?: string | null };
 
 function FindImagesModal({ pin, cashier, missing, onClose, onFinished }: { pin: string; cashier: string; missing: number; onClose: () => void; onFinished: () => void }) {
   const [job, setJob] = useState<FindJob | null>(null);
@@ -527,6 +527,7 @@ function FindImagesModal({ pin, cashier, missing, onClose, onFinished }: { pin: 
         <>
           <div className="field"><span className="field-label">{job.running ? 'Searching…' : 'Finished'}</span><span className="field-value">{job.done} of {job.total} checked · {job.found} pictures found</span></div>
           <div style={{ height: 14, borderRadius: 7, background: 'var(--line)', overflow: 'hidden' }}><div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent)', transition: 'width .4s' }} /></div>
+          {job.lastError && job.found === 0 && job.done > 3 && <div className="err">The product database is not answering: {job.lastError}. Check the internet connection on this computer, then try again.</div>}
         </>
       )}
       {msg && <div className="err">{msg}</div>}

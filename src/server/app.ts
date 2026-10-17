@@ -10,7 +10,7 @@ import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImpor
 import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
 import { listPrinters, listSerialPorts, pulseSerialDrawer, sendToPrinter } from './printer.js';
 import { closeOurWindows, createDisplay, focusRegisterWindow, listScreens, openCustomerWindow, openRegisterWindow, powerOffComputer, type DisplayState } from './display.js';
-import { lookupBarcode, lookupBarcodeLight } from './lookup.js';
+import { lookupBarcode, lookupBarcodeLight, lastLookupError } from './lookup.js';
 import { buildDayReport } from './reports.js';
 import type {
   AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
@@ -530,7 +530,8 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   app.get('/api/lookup/:code', wrap(async (req, res) => {
     const code = String(req.params.code);
     if (!/^[0-9]{6,14}$/.test(code)) { res.json({ found: false, code, name: '', size: null, imageUrl: null, category: null, ageMin: null, source: null }); return; }
-    res.json(await lookupBarcode(code));
+    const lk = await lookupBarcode(code);
+    res.json(lk.found ? lk : { ...lk, error: lastLookupError });
   }));
   app.post('/api/items/quick', wrap((req, res) => {
     const b = req.body as ItemBody & { code?: string; imageUrl?: string | null };
@@ -646,7 +647,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
 
   // Find pictures online for items that have a barcode but no picture yet. Runs in the background.
   let findJob = { total: 0, done: 0, found: 0, running: false, startedAt: null as string | null, finishedAt: null as string | null };
-  app.get('/api/find-images/status', wrap((_req, res) => res.json(findJob)));
+  app.get('/api/find-images/status', wrap((_req, res) => res.json({ ...findJob, lastError: lastLookupError })));
   app.post('/api/find-images', wrap((req, res) => {
     if (!isManagerPin(db, req.body?.pin)) throw new HttpError(403, 'A manager PIN is needed.');
     if (findJob.running) { res.json(findJob); return; }

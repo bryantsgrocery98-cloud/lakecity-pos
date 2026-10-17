@@ -2,6 +2,8 @@
 // sister projects). Returns a name, size and picture so a new item can be added in seconds.
 // Nothing about the store is sent: only the barcode.
 
+export let lastLookupError: string | null = null;
+
 export type Lookup = {
   found: boolean;
   code: string;
@@ -70,9 +72,14 @@ export async function lookupBarcode(code: string, fetchFn: typeof fetch = fetch,
   // All sources at once, so an answer (or a miss) comes back within a few seconds even offline.
   const tryOne = async (label: string, base: string, c: string): Promise<Lookup | null> => {
     try {
-      const res = await fetchFn(`${base}/api/v2/product/${encodeURIComponent(c)}?fields=product_name,product_name_en,brands,quantity,image_front_url,image_url,categories_tags`,
-        { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(6000) });
-      if (!res.ok) return null;
+      let res = await fetchFn(`${base}/api/v2/product/${encodeURIComponent(c)}?fields=product_name,product_name_en,brands,quantity,image_front_url,image_url,categories_tags`,
+        { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(light ? 25000 : 15000) });
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        // Older endpoint as a fallback (some mirrors answer 5xx on v2).
+        res = await fetchFn(`${base}/api/v0/product/${encodeURIComponent(c)}.json`, { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(light ? 25000 : 15000) });
+        if (!res.ok) { lastLookupError = `${label} answered ${res.status} for ${c}`; return null; }
+      }
       const j = (await res.json()) as { status?: number; product?: OffProduct };
       if (!j.product || (j.status !== undefined && j.status !== 1)) return null;
       const name = displayName(j.product);
@@ -80,7 +87,7 @@ export async function lookupBarcode(code: string, fetchFn: typeof fetch = fetch,
       const g = guessCategory(j.product.categories_tags ?? []);
       return { found: true, code, name: name.slice(0, 80), size: (j.product.quantity || '').trim().slice(0, 40) || null,
         imageUrl: j.product.image_front_url || j.product.image_url || null, category: g.category, ageMin: g.ageMin, source: label };
-    } catch { return null; }
+    } catch (e) { lastLookupError = `${label}: ${(e as Error).name === 'TimeoutError' ? 'timed out' : (e as Error).message}`; return null; }
   };
   if (light) {
     const [label, base] = SOURCES[0];

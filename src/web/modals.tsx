@@ -243,7 +243,7 @@ export function DobModal({ onClose, onDone }: { onClose: () => void; onDone: (r:
   );
 }
 
-export type Lookup = { found: boolean; code: string; name: string; size: string | null; imageUrl: string | null; category: string | null; ageMin: number | null; source: string | null };
+export type Lookup = { found: boolean; code: string; name: string; size: string | null; imageUrl: string | null; category: string | null; ageMin: number | null; source: string | null; error?: string | null };
 
 export function LinkModal({ code, items, lookup, onClose, onLink, onNew, error }: {
   code: string; items: ItemDto[]; lookup: Lookup | null | undefined; onClose: () => void; onLink: (itemId: number) => void; onNew: () => void; error: string;
@@ -266,7 +266,7 @@ export function LinkModal({ code, items, lookup, onClose, onLink, onNew, error }
         <span style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
           {lookup === undefined && <><b>Looking it up online…</b><small>Searching the open product database</small></>}
           {lookup && lookup.found && <><b>Add as new item: {lookup.name}{lookup.size ? ` ${lookup.size}` : ''}</b><small>Found online{lookup.category ? ` · looks like ${lookup.category}` : ''} · tap, set the price, done</small></>}
-          {lookup !== undefined && !lookup?.found && <><b>Add as a new item</b><small>Not found online · type the name and price</small></>}
+          {lookup !== undefined && !lookup?.found && <><b>Add as a new item</b><small>{lookup?.error ? `Couldn't reach the product database (${lookup.error})` : 'Not found online'} · type the name and price</small></>}
         </span>
       </button>
       <div className="hint">Or link it to an item that is already in the system but has no barcode yet:</div>
