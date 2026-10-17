@@ -33,7 +33,15 @@ export function CashModal({ total, onClose, onComplete, error, busy }: {
   const change = tendered - total;
   const bills = [100, 500, 1000, 2000, 5000, 10000];
   return (
-    <Modal title="Cash" onClose={onClose}>
+    <Modal title="Cash" onClose={onClose} footer={<>
+      <div className={`change ${change < 0 ? 'short' : ''}`} style={{ margin: 0 }}>
+        <span>{change < 0 ? 'Still needed' : 'Change due'}</span>
+        <span className="num">{formatCents(Math.abs(change))}</span>
+      </div>
+      {error && <div className="err">{error}</div>}
+      <button className="btn btn-primary btn-block" style={{ minHeight: 58, fontSize: 22 }} disabled={change < 0 || busy}
+        onClick={() => onComplete(tendered)}>Complete sale</button>
+    </>}>
       <div className="hint">Total due <b className="num" style={{ fontSize: 24, color: 'var(--ink)' }}>{formatCents(total)}</b></div>
       <div className="quick">
         <button className="btn btn-dark" onClick={() => set(String(total))}>Exact</button>
@@ -41,13 +49,6 @@ export function CashModal({ total, onClose, onComplete, error, busy }: {
       </div>
       <div className="display num" aria-label="Cash given">{formatCents(tendered)}</div>
       <Keypad onKey={(k) => { if (k === '00') { press('0'); press('0'); } else press(k); }} doubleZero onEnter={() => { if (change >= 0 && !busy) onComplete(tendered); }} />
-      <div className={`change ${change < 0 ? 'short' : ''}`}>
-        <span>{change < 0 ? 'Still needed' : 'Change due'}</span>
-        <span className="num">{formatCents(Math.abs(change))}</span>
-      </div>
-      {error && <div className="err">{error}</div>}
-      <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 22 }} disabled={change < 0 || busy}
-        onClick={() => onComplete(tendered)}>Complete sale</button>
     </Modal>
   );
 }

@@ -567,7 +567,7 @@ export function App() {
               <Icon name={ageStatus === 'under' ? 'ban' : ageStatus === 'passed' ? 'ok' : 'id'} size={32} />
               <div className="t">
                 <b>{ageStatus === 'needed' ? 'ID REQUIRED' : ageStatus === 'passed' ? `APPROVED · ${required}+` : ageStatus === 'under' ? 'UNDER AGE · DO NOT SELL' : 'ID EXPIRED'}</b>
-                <span>{ageStatus === 'needed' ? 'Scan the back of the ID to continue' : ageStatus === 'passed'
+                <span>{ageStatus === 'needed' ? `For: ${lines.filter((l) => l.ageMin !== null).map((l) => l.name).slice(0, 3).join(', ')}` : ageStatus === 'passed'
                   ? (ageInfo?.method === 'manager_override' ? 'Approved by a manager' : `Customer is ${ageInfo?.ageYears}`)
                   : ageStatus === 'under' ? `Customer is ${ageInfo?.ageYears}. Needs ${required}+` : 'Manager must approve'}</span>
               </div>

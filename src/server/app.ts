@@ -752,6 +752,29 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     res.json({ ok: true });
   }));
 
+  // Everything that makes the register ask for ID, so a wrong flag (a soda marked 21+) is easy to spot and clear.
+  app.get('/api/age-check', wrap((_req, res) => {
+    const items = db.prepare(`SELECT id, name, size, category, age_min FROM items WHERE active = 1 AND age_min IS NOT NULL ORDER BY category, name`).all() as { id: number; name: string; size: string | null; category: string; age_min: number }[];
+    const buttons = db.prepare(`SELECT b.id, b.name, b.category, b.age_min, p.name AS page FROM buttons b JOIN pages p ON p.id = b.page_id WHERE b.age_min IS NOT NULL ORDER BY p.pos, b.pos`).all() as { id: number; name: string; category: string; age_min: number; page: string }[];
+    const looksRestricted = (text: string) => /alcohol|beer|wine|liquor|lager|ale|seltzer|malt|cider|tobacco|cig|cigar|vape|vapor|nicotine|zyn|snuff|dip|grizzly|skoal|copenhagen|swisher|black ?& ?mild|backwoods|newport|marlboro|camel|pall mall|kool|lighter|rolling paper|wraps?|lottery/i.test(text);
+    res.json({
+      items: items.map((i) => ({ id: i.id, name: i.size ? `${i.name} ${i.size}` : i.name, category: i.category, ageMin: i.age_min, suspicious: !looksRestricted(`${i.name} ${i.category}`) })),
+      buttons: buttons.map((b) => ({ id: b.id, name: b.name, page: b.page, category: b.category, ageMin: b.age_min, suspicious: !looksRestricted(`${b.name} ${b.category}`) })),
+    });
+  }));
+  app.post('/api/buttons/:id/age', wrap((req, res) => {
+    const { pin, cashier, ageMin } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    const cur = db.prepare(`SELECT name FROM buttons WHERE id = ?`).get(id) as { name: string } | undefined;
+    if (!cur) throw new HttpError(404, 'That button no longer exists.');
+    const v = ageMin === null || ageMin === undefined ? null : Number(ageMin);
+    if (v !== null && (!Number.isInteger(v) || v < 1 || v > 99)) throw new HttpError(400, 'That minimum age is not valid.');
+    db.prepare(`UPDATE buttons SET age_min = ? WHERE id = ?`).run(v, id);
+    audit(db, String(cashier ?? ''), 'button_edit', `${cur.name}: age ${v ?? 'none'}`);
+    res.json({ ok: true });
+  }));
+
   // Items whose name/category looks like it belongs to a different tax group than the one set.
   app.get('/api/tax-check', wrap((_req, res) => {
     const auths = loadAuthorities(db);

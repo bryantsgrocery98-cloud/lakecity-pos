@@ -501,6 +501,8 @@ function SettingsTab({ pin, cashier }: { pin: string; cashier: string }) {
       ))}
       {issues && issues.items.length > 60 && <div className="hint">Showing the first 60. Fix these and more will appear.</div>}
 
+      <AgeCheckList pin={pin} cashier={cashier} />
+
       <div className="editor-label">CHECK CASHING</div>
       <div className="field">
         <span className="field-label" style={{ flex: 1 }}>Usual fee for cashing a check (the cashier can change it per check)</span>
@@ -675,5 +677,50 @@ function CustomerEditModal({ customer, pin, cashier, onClose, onDone }: { custom
       <Row k="name" label="Name" v={name} /><Row k="phone" label="Phone" v={phone} /><Row k="note" label="Note" v={note} />
       <OnScreenKeyboard onChar={(c) => setter((s) => s + c)} onBack={() => setter((s) => s.slice(0, -1))} onClear={() => setter('')} />
     </Modal>
+  );
+}
+
+type AgeRow = { id: number; name: string; category: string; ageMin: number; suspicious: boolean; page?: string };
+
+function AgeCheckList({ pin, cashier }: { pin: string; cashier: string }) {
+  const [data, setData] = useState<{ items: AgeRow[]; buttons: AgeRow[] } | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const [msg, setMsg] = useState('');
+  const load = () => api<{ items: AgeRow[]; buttons: AgeRow[] }>('/api/age-check').then(setData).catch((e: Error) => setMsg(e.message));
+  useEffect(() => { load(); }, []);
+  if (!data) return null;
+  const clear = async (kind: 'item' | 'button', r: AgeRow) => {
+    try {
+      if (kind === 'item') await api(`/api/items/${r.id}`, { pin, cashier, ageMin: null, reason: 'no ID needed' });
+      else await api(`/api/buttons/${r.id}/age`, { pin, cashier, ageMin: null });
+      play('ok'); load();
+    } catch (e) { setMsg((e as Error).message); play('bad'); }
+  };
+  const items = data.items.filter((r) => showAll || r.suspicious);
+  const buttons = data.buttons.filter((r) => showAll || r.suspicious);
+  const susp = data.items.filter((r) => r.suspicious).length + data.buttons.filter((r) => r.suspicious).length;
+  return (
+    <>
+      <div className="editor-label">THINGS THAT ASK FOR ID</div>
+      {msg && <div className="inv-msg" style={{ margin: 0 }}>{msg}</div>}
+      <div className="hint">
+        {data.items.length} items and {data.buttons.length} one-click buttons make the register ask for ID.
+        {susp > 0 ? ` ${susp} of them don't look like alcohol or tobacco — check these.` : ' They all look like alcohol or tobacco.'}
+        {' '}<button className="btn btn-sm" onClick={() => setShowAll(!showAll)}>{showAll ? 'Show only the odd ones' : 'Show all'}</button>
+      </div>
+      {buttons.map((b) => (
+        <div key={`b${b.id}`} className="field" style={{ gap: 10 }}>
+          <span className="field-label" style={{ flex: 1 }}>{b.name}<small style={{ display: 'block', color: 'var(--ink-3)', fontWeight: 400 }}>button on the {b.page} page · {b.category} · asks for {b.ageMin}+</small></span>
+          <button className="btn btn-sm btn-primary" onClick={() => clear('button', b)}>No ID needed</button>
+        </div>
+      ))}
+      {items.map((i) => (
+        <div key={`i${i.id}`} className="field" style={{ gap: 10 }}>
+          <span className="field-label" style={{ flex: 1 }}>{i.name}<small style={{ display: 'block', color: 'var(--ink-3)', fontWeight: 400 }}>{i.category} · asks for {i.ageMin}+</small></span>
+          <button className="btn btn-sm btn-primary" onClick={() => clear('item', i)}>No ID needed</button>
+        </div>
+      ))}
+      {items.length === 0 && buttons.length === 0 && !showAll && <div className="hint">Nothing odd found.</div>}
+    </>
   );
 }
