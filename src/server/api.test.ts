@@ -416,3 +416,31 @@ describe('lottery winnings as payment', () => {
     expect(day.lottery.payouts).toBeGreaterThanOrEqual(2500);
   });
 });
+
+describe('quick pages and buttons', () => {
+  it('adds an item button to a page, edits, moves and removes it; manages pages', async () => {
+    const pg = await post('/api/pages', { pin: '2222', cashier: 'Mgr', name: 'Smokes' });
+    expect(pg.status).toBe(200);
+    const { id: pageId } = (await pg.json()) as { id: number };
+    const cig = boot.items.find((i) => /cigarettes/i.test(i.name))!;
+    const b = await post('/api/buttons', { pin: '2222', cashier: 'Mgr', pageId, itemId: cig.id, fill: '#FFE0B2' });
+    expect(b.status).toBe(200);
+    const { id: btnId } = (await b.json()) as { id: number };
+    let bs = (await (await fetch(base + '/api/bootstrap')).json()) as Bootstrap;
+    const page = bs.pages.find((p) => p.id === pageId)!;
+    expect(page.buttons[0]!.itemId).toBe(cig.id);
+    expect(page.buttons[0]!.priceCents).toBe(cig.priceCents);
+    expect(page.buttons[0]!.ageMin).toBe(21);
+    const e = await post(`/api/buttons/${btnId}`, { pin: '2222', cashier: 'Mgr', name: 'Smokes pack', fill: '#1d5fd1' });
+    expect(e.status).toBe(200);
+    bs = (await (await fetch(base + '/api/bootstrap')).json()) as Bootstrap;
+    const btn = bs.pages.find((p) => p.id === pageId)!.buttons[0]!;
+    expect(btn.name).toBe('Smokes pack');
+    expect(btn.textColor).toBe('#ffffff'); // dark fill -> white text
+    const noDel = await post(`/api/pages/${pageId}/delete`, { pin: '2222', cashier: 'Mgr' });
+    expect(noDel.status).toBe(400);
+    expect((await post(`/api/buttons/${btnId}/delete`, { pin: '2222', cashier: 'Mgr' })).status).toBe(200);
+    expect((await post(`/api/pages/${pageId}/delete`, { pin: '2222', cashier: 'Mgr' })).status).toBe(200);
+    expect((await post('/api/buttons', { pin: '1111', pageId: 1, itemId: cig.id })).status).toBe(403);
+  });
+});

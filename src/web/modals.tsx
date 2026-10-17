@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { formatCents, centsFromKeypadDigits } from '../core/money';
 import { evaluateBirthDate, parseAamvaDate } from '../core/aamva';
 import type { Authority } from '../core/tax';
-import type { CustomerDto, HoldDto, ItemDto, Receipt } from '../core/types';
+import type { ButtonDto, CustomerDto, HoldDto, ItemDto, Receipt } from '../core/types';
 import { api } from './api';
 import { play } from './sounds';
 import { Icon, Keypad, Modal, OnScreenKeyboard, useTypedText } from './parts';
@@ -608,6 +608,80 @@ export function TabPaymentModal({ customer, cashier, onClose, onDone }: { custom
         {(['cash', 'card', 'check'] as const).map((t) => <button key={t} className={`chip ${tender === t ? 'on' : ''}`} onClick={() => setTender(t)}>{t === 'cash' ? 'Cash' : t === 'card' ? 'Card' : 'Check'}</button>)}
       </div>
       <div className="hint">After this they will owe {formatCents(Math.max(0, customer.balanceCents - cents))}. A tab payment is not a sale: no tax.</div>
+    </Modal>
+  );
+}
+
+/** Rename, recolor, move or remove a quick button (manager, in "Edit buttons" mode). */
+export function ButtonEditModal({ button, pages, pin, cashier, onClose, onChanged }: { button: ButtonDto; pages: { id: number; name: string }[]; pin: string; cashier: string; onClose: () => void; onChanged: () => void }) {
+  const [name, setName] = useState(button.name);
+  const [colors, setColors] = useState<string[]>([]);
+  const [fill, setFill] = useState(button.fill);
+  const [kb, setKb] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { api<string[]>('/api/button-colors').then(setColors).catch(() => {}); }, []);
+  useTypedText({ onChar: (c) => setName((s) => s + c), onBack: () => setName((s) => s.slice(0, -1)), allowDigits: true });
+  const call = async (body: Record<string, unknown>, del = false) => {
+    try { await api(del ? `/api/buttons/${button.id}/delete` : `/api/buttons/${button.id}`, { pin, cashier, ...body }); play('ok'); onChanged(); } catch (e) { setError((e as Error).message); play('bad'); }
+  };
+  return (
+    <Modal title="Edit button" onClose={onClose} wide footer={<>
+      {error && <div className="err">{error}</div>}
+      <div className="quick" style={{ gridTemplateColumns: '2fr 1fr' }}>
+        <button className="btn btn-primary" style={{ minHeight: 54 }} disabled={!name.trim()} onClick={() => call({ name, fill })}>Save</button>
+        <button className="btn btn-danger" style={{ minHeight: 54 }} onClick={() => call({}, true)}>Remove button</button>
+      </div>
+    </>}>
+      <div className="field-label">NAME ON THE BUTTON{button.itemId ? ' · linked to an inventory item (price and picture follow the item)' : button.priceMode === 'ask' ? ' · asks for the price' : ` · ${formatCents(button.priceCents)}`}</div>
+      <div className="quick" style={{ gridTemplateColumns: '1fr auto' }}>
+        <div className="display plain" style={{ height: 48, fontSize: 20, justifyContent: 'flex-start', fontWeight: 600 }}>{name}</div>
+        <button className="btn" onClick={() => setKb(!kb)}><Icon name="keyboard" size={20} /></button>
+      </div>
+      {kb && <OnScreenKeyboard onChar={(c) => setName((s) => s + c)} onBack={() => setName((s) => s.slice(0, -1))} onClear={() => setName('')} onDone={() => setKb(false)} />}
+      <div className="field-label">COLOR</div>
+      <div className="swatches">{colors.map((c) => <button key={c} className={`swatch ${fill === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setFill(c)} aria-label={c} />)}</div>
+      <div className="field-label">POSITION</div>
+      <div className="quick" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <button className="btn" onClick={() => call({ dir: 'left' })}>← Move left</button>
+        <button className="btn" onClick={() => call({ dir: 'right' })}>Move right →</button>
+      </div>
+      {pages.length > 1 && <>
+        <div className="field-label">MOVE TO ANOTHER PAGE</div>
+        <div className="chips">{pages.map((p) => <button key={p.id} className="chip" onClick={() => call({ pageId: p.id })}>{p.name}</button>)}</div>
+      </>}
+    </Modal>
+  );
+}
+
+/** Rename, reorder, or remove a quick page. */
+export function PageEditModal({ pageId, name: initial, pin, cashier, onClose, onChanged }: { pageId: number; name: string; pin: string; cashier: string; onClose: () => void; onChanged: () => void }) {
+  const [name, setName] = useState(initial);
+  const [newName, setNewName] = useState('');
+  const [which, setWhich] = useState<'rename' | 'new'>('rename');
+  const [error, setError] = useState('');
+  const setter = which === 'rename' ? setName : setNewName;
+  useTypedText({ onChar: (c) => setter((s) => s + c), onBack: () => setter((s) => s.slice(0, -1)), allowDigits: true });
+  const call = async (path: string, body: Record<string, unknown>) => {
+    try { await api(path, { pin, cashier, ...body }); play('ok'); onChanged(); } catch (e) { setError((e as Error).message); play('bad'); }
+  };
+  return (
+    <Modal title="Edit page" onClose={onClose} wide footer={<>{error && <div className="err">{error}</div>}</>}>
+      <div className="field-label">PAGE NAME</div>
+      <div className="quick" style={{ gridTemplateColumns: '1fr auto' }}>
+        <button className={`pick ${which === 'rename' ? 'on' : ''}`} onClick={() => setWhich('rename')}><b>{name || '—'}</b></button>
+        <button className="btn btn-primary" disabled={!name.trim() || name === initial} onClick={() => call(`/api/pages/${pageId}`, { name })}>Rename</button>
+      </div>
+      <div className="quick" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+        <button className="btn" onClick={() => call(`/api/pages/${pageId}`, { dir: 'left' })}>← Move page left</button>
+        <button className="btn" onClick={() => call(`/api/pages/${pageId}`, { dir: 'right' })}>Move page right →</button>
+        <button className="btn btn-danger" onClick={() => call(`/api/pages/${pageId}/delete`, {})}>Remove page</button>
+      </div>
+      <div className="field-label">ADD A NEW PAGE</div>
+      <div className="quick" style={{ gridTemplateColumns: '1fr auto' }}>
+        <button className={`pick ${which === 'new' ? 'on' : ''}`} onClick={() => setWhich('new')}><b>{newName || <span style={{ color: 'var(--ink-3)' }}>Type a name…</span>}</b></button>
+        <button className="btn btn-primary" disabled={!newName.trim()} onClick={() => call('/api/pages', { name: newName })}>Add page</button>
+      </div>
+      <OnScreenKeyboard onChar={(c) => setter((s) => s + c)} onBack={() => setter((s) => s.slice(0, -1))} onClear={() => setter('')} />
     </Modal>
   );
 }

@@ -82,10 +82,12 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const pages = (db.prepare(`SELECT id, name FROM pages ORDER BY pos`).all() as { id: number; name: string }[])
       .map((p) => ({
         ...p,
-        buttons: (db.prepare(`SELECT * FROM buttons WHERE page_id = ? ORDER BY pos`).all(p.id) as Record<string, any>[])
+        buttons: (db.prepare(`SELECT b.*, i.image_version AS item_image, i.price_cents AS item_price, i.active AS item_active FROM buttons b LEFT JOIN items i ON i.id = b.item_id WHERE b.page_id = ? ORDER BY b.pos`).all(p.id) as Record<string, any>[])
+          .filter((b) => !b.item_id || b.item_active)
           .map((b): ButtonDto => ({
-            id: b.id, name: b.name, priceCents: b.price_cents, priceMode: b.price_mode, authorityId: b.authority_id,
+            id: b.id, name: b.name, priceCents: b.item_id ? b.item_price : b.price_cents, priceMode: b.price_mode, authorityId: b.authority_id,
             category: b.category, ageMin: b.age_min, shape: b.shape, fill: b.fill, border: b.border, textColor: b.text_color,
+            itemId: b.item_id ?? null, imageVersion: b.item_image ?? 0,
           })),
       }));
     const body: Bootstrap = {
@@ -757,6 +759,105 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     audit(db, String(b.cashier ?? ''), 'authority_delete', cur?.title ?? String(id));
     res.json({ ok: true });
   }));
+
+  // ---------- quick pages and buttons ----------
+  const PALETTE = ['#FFE0B2', '#D6EAF8', '#F8D7DA', '#E8DAEF', '#D5F5E3', '#FFF3B0', '#FADBD8', '#D1F2EB', '#FDEBD0', '#E5E7E9', '#1d5fd1', '#15a34a', '#e11d48', '#f59e0b', '#7a3fb5', '#14222e'];
+  const lightFill = (hex: string) => { const n = parseInt(hex.replace('#', ''), 16); const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; return (r * 299 + g * 587 + b * 114) / 1000 > 150; };
+  const darken = (hex: string) => { const n = parseInt(hex.replace('#', ''), 16); const f = (v: number) => Math.max(0, Math.round(v * 0.75)).toString(16).padStart(2, '0'); return `#${f((n >> 16) & 255)}${f((n >> 8) & 255)}${f(n & 255)}`; };
+  app.get('/api/pages', wrap((_req, res) => { res.json(db.prepare(`SELECT id, name, pos FROM pages ORDER BY pos`).all()); }));
+  app.post('/api/pages', wrap((req, res) => {
+    const { pin, cashier, name } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const n = String(name ?? '').trim().slice(0, 30);
+    if (!n) throw new HttpError(400, 'Give the page a name.');
+    const pos = ((db.prepare(`SELECT COALESCE(MAX(pos), -1) m FROM pages`).get() as { m: number }).m) + 1;
+    const r = db.prepare(`INSERT INTO pages (name, pos) VALUES (?, ?)`).run(n, pos);
+    audit(db, String(cashier ?? ''), 'page_add', n);
+    res.json({ id: Number(r.lastInsertRowid), name: n, pos });
+  }));
+  app.post('/api/pages/:id', wrap((req, res) => {
+    const { pin, cashier, name, dir } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    const cur = db.prepare(`SELECT * FROM pages WHERE id = ?`).get(id) as { id: number; name: string; pos: number } | undefined;
+    if (!cur) throw new HttpError(404, 'That page no longer exists.');
+    if (name !== undefined) { const n = String(name).trim().slice(0, 30); if (!n) throw new HttpError(400, 'Give the page a name.'); db.prepare(`UPDATE pages SET name = ? WHERE id = ?`).run(n, id); }
+    if (dir === 'left' || dir === 'right') {
+      const other = db.prepare(`SELECT id, pos FROM pages WHERE pos ${dir === 'left' ? '<' : '>'} ? ORDER BY pos ${dir === 'left' ? 'DESC' : 'ASC'} LIMIT 1`).get(cur.pos) as { id: number; pos: number } | undefined;
+      if (other) { db.prepare(`UPDATE pages SET pos = ? WHERE id = ?`).run(other.pos, id); db.prepare(`UPDATE pages SET pos = ? WHERE id = ?`).run(cur.pos, other.id); }
+    }
+    audit(db, String(cashier ?? ''), 'page_edit', cur.name);
+    res.json({ ok: true });
+  }));
+  app.post('/api/pages/:id/delete', wrap((req, res) => {
+    const { pin, cashier } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    const n = (db.prepare(`SELECT COUNT(*) n FROM buttons WHERE page_id = ?`).get(id) as { n: number }).n;
+    if (n > 0) throw new HttpError(400, `Remove the ${n} buttons on this page first.`);
+    const cur = db.prepare(`SELECT name FROM pages WHERE id = ?`).get(id) as { name: string } | undefined;
+    db.prepare(`DELETE FROM pages WHERE id = ?`).run(id);
+    audit(db, String(cashier ?? ''), 'page_delete', cur?.name ?? String(id));
+    res.json({ ok: true });
+  }));
+  app.post('/api/buttons', wrap((req, res) => {
+    const { pin, cashier, pageId, itemId, name, priceCents, fill, priceMode, authorityId, category, ageMin } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const page = db.prepare(`SELECT id FROM pages WHERE id = ?`).get(Number(pageId)) as { id: number } | undefined;
+    if (!page) throw new HttpError(400, 'Pick a page.');
+    const color = PALETTE.includes(String(fill)) ? String(fill) : PALETTE[0]!;
+    const textColor = lightFill(color) ? '#14222e' : '#ffffff';
+    const pos = ((db.prepare(`SELECT COALESCE(MAX(pos), -1) m FROM buttons WHERE page_id = ?`).get(page.id) as { m: number }).m) + 1;
+    let r;
+    if (itemId) {
+      const it = db.prepare(`SELECT * FROM items WHERE id = ? AND active = 1`).get(Number(itemId)) as Record<string, any> | undefined;
+      if (!it) throw new HttpError(400, 'That item no longer exists.');
+      const label = String(name ?? '').trim().slice(0, 40) || (it.size ? `${it.name} ${it.size}` : it.name);
+      r = db.prepare(`INSERT INTO buttons (page_id, pos, name, price_cents, price_mode, item_id, authority_id, category, age_min, shape, fill, border, text_color) VALUES (?, ?, ?, ?, 'fixed', ?, ?, ?, ?, 'box', ?, ?, ?)`)
+        .run(page.id, pos, label, it.price_cents, it.id, it.authority_id, it.category, it.age_min, color, darken(color), textColor);
+    } else {
+      const label = String(name ?? '').trim().slice(0, 40);
+      if (!label) throw new HttpError(400, 'Give the button a name.');
+      const mode = priceMode === 'ask' ? 'ask' : 'fixed';
+      const cents = mode === 'ask' ? 0 : Number(priceCents);
+      if (mode === 'fixed' && (!Number.isInteger(cents) || cents < 0)) throw new HttpError(400, 'That price is not valid.');
+      r = db.prepare(`INSERT INTO buttons (page_id, pos, name, price_cents, price_mode, item_id, authority_id, category, age_min, shape, fill, border, text_color) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'box', ?, ?, ?)`)
+        .run(page.id, pos, label, cents, mode, authorityId ?? null, String(category ?? 'Other').slice(0, 40), ageMin ?? null, color, darken(color), textColor);
+    }
+    audit(db, String(cashier ?? ''), 'button_add', `${name ?? itemId} on page ${page.id}`);
+    res.json({ ok: true, id: Number(r.lastInsertRowid) });
+  }));
+  app.post('/api/buttons/:id', wrap((req, res) => {
+    const { pin, cashier, name, fill, dir, pageId, priceCents } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    const cur = db.prepare(`SELECT * FROM buttons WHERE id = ?`).get(id) as Record<string, any> | undefined;
+    if (!cur) throw new HttpError(404, 'That button no longer exists.');
+    if (name !== undefined) { const n = String(name).trim().slice(0, 40); if (n) db.prepare(`UPDATE buttons SET name = ? WHERE id = ?`).run(n, id); }
+    if (fill !== undefined && PALETTE.includes(String(fill))) db.prepare(`UPDATE buttons SET fill = ?, border = ?, text_color = ? WHERE id = ?`).run(fill, darken(String(fill)), lightFill(String(fill)) ? '#14222e' : '#ffffff', id);
+    if (priceCents !== undefined && !cur.item_id && cur.price_mode === 'fixed') { const c = Number(priceCents); if (Number.isInteger(c) && c >= 0) db.prepare(`UPDATE buttons SET price_cents = ? WHERE id = ?`).run(c, id); }
+    if (pageId !== undefined && Number(pageId) !== cur.page_id) {
+      const pos = ((db.prepare(`SELECT COALESCE(MAX(pos), -1) m FROM buttons WHERE page_id = ?`).get(Number(pageId)) as { m: number }).m) + 1;
+      db.prepare(`UPDATE buttons SET page_id = ?, pos = ? WHERE id = ?`).run(Number(pageId), pos, id);
+    }
+    if (dir === 'left' || dir === 'right') {
+      const other = db.prepare(`SELECT id, pos FROM buttons WHERE page_id = ? AND pos ${dir === 'left' ? '<' : '>'} ? ORDER BY pos ${dir === 'left' ? 'DESC' : 'ASC'} LIMIT 1`).get(cur.page_id, cur.pos) as { id: number; pos: number } | undefined;
+      if (other) { db.prepare(`UPDATE buttons SET pos = ? WHERE id = ?`).run(other.pos, id); db.prepare(`UPDATE buttons SET pos = ? WHERE id = ?`).run(cur.pos, other.id); }
+    }
+    audit(db, String(cashier ?? ''), 'button_edit', String(cur.name));
+    res.json({ ok: true });
+  }));
+  app.post('/api/buttons/:id/delete', wrap((req, res) => {
+    const { pin, cashier } = req.body ?? {};
+    if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
+    const id = Number(req.params.id);
+    const cur = db.prepare(`SELECT name FROM buttons WHERE id = ?`).get(id) as { name: string } | undefined;
+    if (!cur) throw new HttpError(404, 'That button no longer exists.');
+    db.prepare(`DELETE FROM buttons WHERE id = ?`).run(id);
+    audit(db, String(cashier ?? ''), 'button_delete', cur.name);
+    res.json({ ok: true });
+  }));
+  app.get('/api/button-colors', (_req, res) => { res.json(PALETTE); });
 
   // Everything that makes the register ask for ID, so a wrong flag (a soda marked 21+) is easy to spot and clear.
   app.get('/api/age-check', wrap((_req, res) => {

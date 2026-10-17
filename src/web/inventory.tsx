@@ -290,6 +290,7 @@ function ItemEditor({ item, authorities, cats, pin, cashier, trackStock = true, 
   const [text, setText] = useState<null | 'name' | 'size' | 'category' | 'barcode'>(null);
   const [num, setNum] = useState<null | 'price' | 'cost' | 'stock' | 'dealQty' | 'dealCents'>(null);
   const [cam, setCam] = useState(false);
+  const [quick, setQuick] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [imgV, setImgV] = useState(item?.imageVersion ?? 0);
@@ -400,6 +401,8 @@ function ItemEditor({ item, authorities, cats, pin, cashier, trackStock = true, 
 
       {error && <div className="err" role="alert">{error}</div>}
       <button className="btn btn-primary btn-block" style={{ minHeight: 60, fontSize: 20 }} disabled={busy} onClick={save}>{item ? 'Save changes' : 'Create item'}</button>
+      {item && <button className="btn btn-block" style={{ minHeight: 52 }} onClick={() => setQuick(true)}><Icon name="plus" size={18} /> Add to a quick page (one-tap button on the register)</button>}
+      {quick && item && <QuickButtonModal item={item} pin={pin} cashier={cashier} onClose={() => setQuick(false)} />}
 
       {text && <TextModal title={text === 'barcode' ? 'Barcode' : text[0]!.toUpperCase() + text.slice(1)} initial={text === 'barcode' ? '' : text === 'category' ? d.category : d[text]} suggestions={text === 'category' ? cats : undefined}
         onClose={() => setText(null)} onOk={(v) => { if (text === 'barcode') addBarcode(v.trim()); else set(text, v.trim()); setText(null); }} />}
@@ -594,6 +597,47 @@ function BulkDealModal({ items, pin, cashier, onClose }: { items: InventoryItem[
       {picked.size > 0 && <div className="hint">{picked.size} ticked. Tick more by searching again; ticks are kept.</div>}
       {num && <NumberModal title={num === 'qty' ? 'Deal: how many' : 'Deal: price for the group'} money={num === 'price'} current={num === 'qty' ? dealQty : dealCents}
         onClose={() => setNum(null)} onOk={(v) => { if (num === 'qty') setDealQty(Math.max(2, v)); else setDealCents(v); setNum(null); }} />}
+    </Modal>
+  );
+}
+
+/** Puts an item on one of the register's quick pages as a one-tap button. */
+function QuickButtonModal({ item, pin, cashier, onClose }: { item: InventoryItem; pin: string; cashier: string; onClose: () => void }) {
+  const [pages, setPages] = useState<{ id: number; name: string }[]>([]);
+  const [colors, setColors] = useState<string[]>([]);
+  const [pageId, setPageId] = useState<number | null>(null);
+  const [fill, setFill] = useState('#FFE0B2');
+  const [name, setName] = useState(item.size ? `${item.name} ${item.size}` : item.name);
+  const [kb, setKb] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    api<{ id: number; name: string }[]>('/api/pages').then((p) => { setPages(p); setPageId(p[0]?.id ?? null); }).catch((e: Error) => setMsg(e.message));
+    api<string[]>('/api/button-colors').then((c) => { setColors(c); if (c[0]) setFill(c[0]); }).catch(() => {});
+  }, []);
+  const add = async () => {
+    if (pageId === null) return;
+    try { await api('/api/buttons', { pin, cashier, pageId, itemId: item.id, name, fill }); play('done'); setDone(true); setMsg(`Added to ${pages.find((p) => p.id === pageId)?.name}. It shows up on the register right away.`); }
+    catch (e) { setMsg((e as Error).message); play('bad'); }
+  };
+  return (
+    <Modal title="Add to a quick page" onClose={onClose} footer={<>
+      {msg && <div className="inv-msg" style={{ margin: 0 }}>{msg}</div>}
+      {done ? <button className="btn btn-primary btn-block" style={{ minHeight: 54 }} onClick={onClose}>Done</button>
+        : <button className="btn btn-primary btn-block" style={{ minHeight: 54 }} disabled={pageId === null || !name.trim()} onClick={add}>Add button</button>}
+    </>}>
+      <div className="field-label">PAGE</div>
+      <div className="chips">{pages.map((p) => <button key={p.id} className={`chip ${pageId === p.id ? 'on' : ''}`} onClick={() => setPageId(p.id)}>{p.name}</button>)}</div>
+      <div className="hint">New pages are made on the register: Edit buttons → tap the page name → Add a new page.</div>
+      <div className="field-label">NAME ON THE BUTTON</div>
+      <div className="quick" style={{ gridTemplateColumns: '1fr auto' }}>
+        <div className="display plain" style={{ height: 48, fontSize: 20, justifyContent: 'flex-start', fontWeight: 600 }}>{name}</div>
+        <button className="btn" onClick={() => setKb(!kb)}><Icon name="keyboard" size={20} /></button>
+      </div>
+      {kb && <OnScreenKeyboard onChar={(c) => setName((s) => s + c)} onBack={() => setName((s) => s.slice(0, -1))} onClear={() => setName('')} onDone={() => setKb(false)} />}
+      <div className="field-label">COLOR</div>
+      <div className="swatches">{colors.map((c) => <button key={c} className={`swatch ${fill === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setFill(c)} aria-label={c} />)}</div>
+      <div className="hint">The button uses this item's price, picture, tax and deal, so changing the item later changes the button too.</div>
     </Modal>
   );
 }

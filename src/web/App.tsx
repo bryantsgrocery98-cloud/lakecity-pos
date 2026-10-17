@@ -6,7 +6,7 @@ import type { Bootstrap, ButtonDto, CustomerDto, HoldDto, ItemDto, Receipt, Sale
 import { ApiError, api } from './api';
 import {
   AskModal, CardModal, CashModal, ConfirmModal, DiscountModal, DobModal, IdModal, LinkModal, LotteryModal, PayoutModal,
-  CheckModal, CustomerPickModal, NewItemModal, PinModal, PowerModal, QtyModal, TabChargeModal, TabPaymentModal, RecallModal, ReceiptModal, TodayModal, type AgeInfo, type Lookup,
+  ButtonEditModal, CheckModal, CustomerPickModal, NewItemModal, PageEditModal, PinModal, PowerModal, QtyModal, TabChargeModal, TabPaymentModal, RecallModal, ReceiptModal, TodayModal, type AgeInfo, type Lookup,
 } from './modals';
 import { Icon, Keypad, OnScreenKeyboard, Shape } from './parts';
 import { InventoryPage, imageUrl } from './inventory';
@@ -16,7 +16,7 @@ import { CategoryArt } from './art';
 
 type ModalState =
   | { t: 'power' } | { t: 'cash' } | { t: 'card' } | { t: 'check' } | { t: 'gas' }
-  | { t: 'tabpick' } | { t: 'tabcharge'; customer: CustomerDto } | { t: 'tabpaypick' } | { t: 'tabpay'; customer: CustomerDto } | { t: 'lottery' } | { t: 'payout' } | { t: 'id' } | { t: 'dob' } | { t: 'recall' }
+  | { t: 'editbtn'; button: ButtonDto } | { t: 'editpage'; pageId: number } | { t: 'tabpick' } | { t: 'tabcharge'; customer: CustomerDto } | { t: 'tabpaypick' } | { t: 'tabpay'; customer: CustomerDto } | { t: 'lottery' } | { t: 'payout' } | { t: 'id' } | { t: 'dob' } | { t: 'recall' }
   | { t: 'discount' } | { t: 'today' }
   | { t: 'ask'; button: ButtonDto }
   | { t: 'qty'; key: string }
@@ -41,6 +41,7 @@ export function App() {
   const [pageId, setPageId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [kb, setKb] = useState(false);
+  const [editButtons, setEditButtons] = useState(false);
   const [modal, setModal] = useState<ModalState | null>(null);
   useEffect(() => { modalRef.current = modal; if (!modal) searchRef.current?.focus(); }, [modal]);
   const [ageInfo, setAgeInfo] = useState<AgeInfo | null>(null);
@@ -195,7 +196,9 @@ export function App() {
   };
 
   const tapButton = (b: ButtonDto) => {
+    if (editButtons) { setModal({ t: 'editbtn', button: b }); return; }
     if (!tapOk(`b${b.id}`)) return;
+    if (b.itemId) { const it = boot?.items.find((i) => i.id === b.itemId); if (it) { pushLine({ kind: 'item', name: it.size ? `${it.name} ${it.size}` : it.name, qty: 1, unitCents: it.priceCents, authorityId: it.authorityId, category: it.category, ageMin: it.ageMin, itemId: it.id, dealQty: it.dealQty, dealCents: it.dealCents }); return; } }
     if (b.priceMode === 'ask') { setModal({ t: 'ask', button: b }); return; }
     pushLine({ kind: 'button', name: b.name, qty: 1, unitCents: b.priceCents, authorityId: b.authorityId, category: b.category, ageMin: b.ageMin, buttonId: b.id });
   };
@@ -620,13 +623,16 @@ export function App() {
             <button className="btn" onClick={() => setKb(!kb)}><Icon name="keyboard" /> Keyboard</button>
           </div>
 
-          {!q && (
+          {!q && (<>
             <div className="tabs" role="tablist">
               {boot.pages.map((p) => (
-                <button key={p.id} role="tab" aria-selected={p.id === page?.id} className={`tab ${p.id === page?.id ? 'on' : ''}`} onClick={() => setPageId(p.id)}>{p.name}</button>
+                <button key={p.id} role="tab" aria-selected={p.id === page?.id} className={`tab ${p.id === page?.id ? 'on' : ''} ${editButtons ? 'tab-edit' : ''}`}
+                  onClick={() => { if (editButtons && p.id === page?.id) setModal({ t: 'editpage', pageId: p.id }); else setPageId(p.id); }}>{p.name}{editButtons && p.id === page?.id ? ' ✎' : ''}</button>
               ))}
+              {isMgr && <button className={`tab ${editButtons ? 'on' : ''}`} style={{ flex: '0 0 auto', marginLeft: 'auto' }} onClick={() => setEditButtons(!editButtons)}><Icon name="edit" size={18} /> {editButtons ? 'Done editing' : 'Edit buttons'}</button>}
             </div>
-          )}
+            {editButtons && <div className="hint" style={{ margin: '-4px 0 4px' }}>Tap a button to rename, recolor, move or remove it. Tap the page name to rename or reorder pages. Add buttons from Inventory → item → "Add to a quick page".</div>}
+          </>)}
 
           <div className="grid-wrap">
             {q ? (
@@ -645,7 +651,7 @@ export function App() {
                 {page?.buttons.map((b) => (
                   <button key={b.id} className={`tile ${b.priceMode === 'ask' ? 'tile-ask' : ''}`} style={{ background: b.fill, borderColor: b.border, color: b.textColor }} onClick={(e) => { if (e.detail === 0) return; tapButton(b); }}>
                     {b.ageMin !== null && <span className="age-tag">{b.ageMin}+</span>}
-                    <Shape shape={b.shape} />
+                    {b.itemId && imageUrl(b.itemId, b.imageVersion) ? <img className="tile-img" src={imageUrl(b.itemId, b.imageVersion)!} alt="" /> : <Shape shape={b.shape} />}
                     <span>
                       <span className="nm" style={{ display: 'block' }}>{b.name}</span>
                       <span className="pr num">{b.priceMode === 'ask' ? 'Enter price' : formatCents(b.priceCents)}</span>
@@ -677,7 +683,7 @@ export function App() {
             <button className="svc" onClick={() => setModal({ t: 'gas' })}><Icon name="gas" size={28} /><span>Gas<small>Enter the amount</small></span></button>
             <button className="svc" onClick={() => setModal({ t: 'check' })}><Icon name="check" size={28} /><span>Cash a Check<small>{formatCents(boot.settings.checkFeeCents)} fee</small></span></button>
             <button className="svc" onClick={() => { const b = btnByName('Non-listed Item'); if (b) tapButton(b); }}><Icon name="tag" size={28} /><span>Non-listed Item<small>Enter the price</small></span></button>
-            <button className="svc" onClick={() => setModal({ t: 'payout' })}><Icon name="payout" size={28} /><span>Lottery Winnings<small>Pays for the ticket, rest in cash</small></span></button>
+            <button className="svc" onClick={() => setModal({ t: 'payout' })}><Icon name="payout" size={28} /><span>Winnings<small>Winning ticket</small></span></button>
           </div>
 
           <div className="actions">
@@ -698,6 +704,10 @@ export function App() {
 
       {modal?.t === 'cash' && <CashModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={(t) => completeSale({ tender: 'cash', tenderedCents: t })} />}
       {modal?.t === 'card' && <CardModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={() => completeSale({ tender: 'card', reference: '' })} />}
+      {modal?.t === 'editbtn' && <ButtonEditModal button={modal.button} pages={boot.pages.map((p) => ({ id: p.id, name: p.name }))} pin={user.pin} cashier={user.name} onClose={() => setModal(null)}
+        onChanged={() => { setModal(null); api<Bootstrap>('/api/bootstrap').then(setBoot).catch(() => {}); }} />}
+      {modal?.t === 'editpage' && <PageEditModal pageId={modal.pageId} name={boot.pages.find((p) => p.id === modal.pageId)?.name ?? ''} pin={user.pin} cashier={user.name} onClose={() => setModal(null)}
+        onChanged={() => { setModal(null); api<Bootstrap>('/api/bootstrap').then((b) => { setBoot(b); if (!b.pages.some((p) => p.id === pageId)) setPageId(b.pages[0]?.id ?? null); }).catch(() => {}); }} />}
       {modal?.t === 'tabpick' && <CustomerPickModal title="Put on whose tab?" hint="Tap the customer. The whole ticket, tax included, goes on their tab." cashier={user.name} onClose={() => setModal(null)} onPick={(c) => setModal({ t: 'tabcharge', customer: c })} />}
       {modal?.t === 'tabcharge' && <TabChargeModal customer={modal.customer} total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal({ t: 'tabpick' })}
         onConfirm={() => completeSale({ tender: 'tab', customerId: modal.customer.id })} />}

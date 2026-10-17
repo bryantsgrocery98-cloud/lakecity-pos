@@ -35,6 +35,9 @@ export type ButtonDto = {
   fill: string;
   border: string;
   textColor: string;
+  /** When the button stands for an inventory item: tapping it rings that item (price, deal, picture follow the item). */
+  itemId: number | null;
+  imageVersion: number;
 };
 
 export type PageDto = { id: number; name: string; buttons: ButtonDto[] };
