@@ -273,8 +273,11 @@ export function NewItemModal({ code, lookup, categories, authorities, onClose, o
   useTypedText({ onChar: (c) => setName((s) => s + c), onBack: () => { if (kb) setName((s) => s.slice(0, -1)); }, allowDigits: kb }); // with the keypad showing, Backspace edits the price
   const { digits, press } = useDigits(7);
   const price = centsFromKeypadDigits(digits);
-  const cats = Array.from(new Set([...(lookup?.category ? [lookup.category] : []), ...categories])).slice(0, 12);
-  const [category, setCategory] = useState(lookup?.category ?? categories[0] ?? 'Grocery');
+  const restricted = (c: string) => /alcohol|beer|wine|liquor|tobacco|cig|vape/i.test(c);
+  // Never default to an age-restricted category: a soda added in a hurry must not end up as "Alcohol".
+  const safeDefault = ['Drinks', 'Food & Drink', 'Snack', 'Snacks', 'Grocery', 'Food'].find((c) => categories.includes(c)) ?? categories.find((c) => !restricted(c)) ?? 'Grocery';
+  const cats = Array.from(new Set([...(lookup?.category ? [lookup.category] : []), safeDefault, ...categories.filter((c) => !restricted(c)), ...categories.filter(restricted)])).slice(0, 14);
+  const [category, setCategory] = useState(lookup?.category ?? safeDefault);
   const guessAuth = (cat: string): number | null => {
     const c = cat.toLowerCase();
     const find = (re: RegExp) => authorities.find((a) => re.test(a.title.toLowerCase()))?.id ?? null;
@@ -283,7 +286,7 @@ export function NewItemModal({ code, lookup, categories, authorities, onClose, o
     if (/drink|food|snack|candy|beverage/.test(c)) return find(/food|drink/);
     return find(/grocery|all/) ?? authorities[0]?.id ?? null;
   };
-  const [authorityId, setAuthorityId] = useState<number | null>(guessAuth(lookup?.category ?? categories[0] ?? ''));
+  const [authorityId, setAuthorityId] = useState<number | null>(guessAuth(lookup?.category ?? safeDefault));
   const ageMin = /alcohol|beer|wine|liquor|tobacco|cig|vape/.test(category.toLowerCase()) ? 21 : lookup?.ageMin ?? null;
   const pickCat = (c: string) => { setCategory(c); setAuthorityId(guessAuth(c)); };
   const ok = name.trim().length > 0 && price > 0;
@@ -311,7 +314,7 @@ export function NewItemModal({ code, lookup, categories, authorities, onClose, o
         {authorities.map((a) => <button key={a.id} className={`chip ${authorityId === a.id ? 'on' : ''}`} onClick={() => setAuthorityId(a.id)}>{a.title}</button>)}
         <button className={`chip ${authorityId === null ? 'on' : ''}`} onClick={() => setAuthorityId(null)}>No tax</button>
       </div>
-      {ageMin && <div className="hint">Age check: {ageMin}+ (ID required at the register).</div>}
+      {ageMin ? <div className="err">This category asks for ID ({ageMin}+) every time it is sold. Pick a different category if that is wrong.</div> : <div className="hint">No ID check for this item.</div>}
       <div className="field-label">PRICE</div>
       <div className="display num" aria-label="Price">{formatCents(price)}</div>
       {!kb && <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={save} />}
