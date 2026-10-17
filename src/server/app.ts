@@ -9,7 +9,7 @@ import type { createUpdater } from './updater.js';
 import { applyImport, fetchImportImages, looksLikePricebook, parseCsv, planImport } from './pricebook.js';
 import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } from './escpos.js';
 import { listPrinters, listSerialPorts, pulseSerialDrawer, sendToPrinter } from './printer.js';
-import { createDisplay, listScreens, openCustomerWindow, type DisplayState } from './display.js';
+import { closeOurWindows, createDisplay, listScreens, openCustomerWindow, powerOffComputer, type DisplayState } from './display.js';
 import { lookupBarcode, lookupBarcodeLight } from './lookup.js';
 import { buildDayReport } from './reports.js';
 import type {
@@ -656,6 +656,22 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
 
   // ---------- version and activity (the screen reloads itself after an update; the updater waits while a ticket is open) ----------
   app.get('/api/version', (_req, res) => { res.json({ version: extras.version ?? '0' }); });
+
+  // ---------- power: restart / close the register, restart or shut down the computer ----------
+  app.post('/api/power', wrap(async (req, res) => {
+    const action = String(req.body?.action ?? '');
+    if (!['restart', 'quit', 'reboot', 'poweroff'].includes(action)) throw new HttpError(400, 'Unknown power action.');
+    audit(db, String(req.body?.cashier ?? ''), 'power', action);
+    res.json({ ok: true });
+    const root = extras.root ?? process.cwd();
+    setTimeout(async () => {
+      if (action === 'restart') { process.exit(75); } // the launcher starts the register again right away
+      await closeOurWindows(root);
+      if (action === 'reboot') powerOffComputer(true);
+      if (action === 'poweroff') powerOffComputer(false);
+      process.exit(0); // the launcher stops too
+    }, 400);
+  }));
 
   // ---------- customer display ----------
   const display = extras.display ?? createDisplay();

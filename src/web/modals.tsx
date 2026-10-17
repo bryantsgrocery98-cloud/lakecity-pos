@@ -479,3 +479,33 @@ export function CheckModal({ feeBp, ticketTotal, busy, error, onClose, onDone }:
     </Modal>
   );
 }
+
+export function PowerModal({ ticketOpen, onClose, onPick }: { ticketOpen: boolean; onClose: () => void; onPick: (a: 'refresh' | 'restart' | 'quit' | 'reboot' | 'poweroff') => void }) {
+  const [confirm, setConfirm] = useState<null | 'restart' | 'quit' | 'reboot' | 'poweroff'>(null);
+  const labels = { restart: 'Restart the register', quit: 'Close the register', reboot: 'Restart the computer', poweroff: 'Shut down the computer' };
+  if (confirm) {
+    return (
+      <Modal title={labels[confirm]} onClose={() => setConfirm(null)}>
+        <div className="hint" style={{ fontSize: 17 }}>
+          {ticketOpen && <b>The ticket on screen will be lost. </b>}
+          {confirm === 'restart' && 'The register program stops and starts again; the screen comes back by itself in about 15 seconds.'}
+          {confirm === 'quit' && 'Both screens close and the register program stops. Open it again from the desktop icon.'}
+          {confirm === 'reboot' && 'Windows restarts. The register opens by itself after sign-in.'}
+          {confirm === 'poweroff' && 'The computer turns off. Press its power button to start again.'}
+        </div>
+        <button className={`btn btn-block ${confirm === 'poweroff' || confirm === 'reboot' ? 'btn-danger' : 'btn-primary'}`} style={{ minHeight: 60 }} onClick={() => onPick(confirm)}>Yes, {labels[confirm].toLowerCase()}</button>
+        <button className="btn btn-block" onClick={() => setConfirm(null)}>Back</button>
+      </Modal>
+    );
+  }
+  return (
+    <Modal title="Power" onClose={onClose}>
+      <div className="hint">If something looks stuck, try these in order.</div>
+      <button className="btn btn-primary btn-block" style={{ minHeight: 58 }} onClick={() => onPick('refresh')}>Refresh the screen</button>
+      <button className="btn btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('restart')}>Restart the register</button>
+      <button className="btn btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('quit')}>Close the register</button>
+      <button className="btn btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('reboot')}>Restart the computer</button>
+      <button className="btn btn-danger btn-block" style={{ minHeight: 58 }} onClick={() => setConfirm('poweroff')}>Shut down the computer</button>
+    </Modal>
+  );
+}

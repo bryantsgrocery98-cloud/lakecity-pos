@@ -6,7 +6,7 @@ import type { Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleLineInput } f
 import { ApiError, api } from './api';
 import {
   AskModal, CardModal, CashModal, ConfirmModal, DiscountModal, DobModal, IdModal, LinkModal, LotteryModal, PayoutModal,
-  CheckModal, NewItemModal, PinModal, QtyModal, RecallModal, ReceiptModal, TodayModal, type AgeInfo, type Lookup,
+  CheckModal, NewItemModal, PinModal, PowerModal, QtyModal, RecallModal, ReceiptModal, TodayModal, type AgeInfo, type Lookup,
 } from './modals';
 import { Icon, Keypad, OnScreenKeyboard, Shape } from './parts';
 import { InventoryPage, imageUrl } from './inventory';
@@ -15,7 +15,7 @@ import { installTapSound, play, setSoundsEnabled, soundsEnabled } from './sounds
 import { CategoryArt } from './art';
 
 type ModalState =
-  | { t: 'cash' } | { t: 'card' } | { t: 'check' } | { t: 'gas' } | { t: 'lottery' } | { t: 'payout' } | { t: 'id' } | { t: 'dob' } | { t: 'recall' }
+  | { t: 'power' } | { t: 'cash' } | { t: 'card' } | { t: 'check' } | { t: 'gas' } | { t: 'lottery' } | { t: 'payout' } | { t: 'id' } | { t: 'dob' } | { t: 'recall' }
   | { t: 'discount' } | { t: 'today' }
   | { t: 'ask'; button: ButtonDto }
   | { t: 'qty'; key: string }
@@ -341,6 +341,25 @@ export function App() {
     } catch (e) { showToast((e as Error).message, true); await refreshHolds(); }
   };
 
+  /** Refresh / restart / shut down, for when something looks stuck. */
+  const power = async (action: 'refresh' | 'restart' | 'quit' | 'reboot' | 'poweroff') => {
+    if (action === 'refresh') { window.location.reload(); return; }
+    setModal(null);
+    try { await api('/api/power', { action, cashier: user?.name ?? '' }); } catch { /* the register may already be down; the launcher brings it back */ }
+    if (action === 'restart') {
+      setUpdating('Restarting…');
+      // Wait for the register to go away and come back, then reload this screen.
+      let wasDown = false;
+      const t = window.setInterval(async () => {
+        try { await api('/api/version'); if (wasDown) { window.clearInterval(t); window.location.reload(); } }
+        catch { wasDown = true; }
+      }, 1000);
+      window.setTimeout(() => { window.clearInterval(t); window.location.reload(); }, 60_000);
+    } else {
+      setUpdating(action === 'quit' ? 'Closing…' : action === 'reboot' ? 'Restarting the computer…' : 'Shutting down…');
+    }
+  };
+
   /** One tap: check for a newer build, install it, restart. The screen reloads itself when the register is back. */
   const runUpdate = async () => {
     if (!user) return;
@@ -466,6 +485,9 @@ export function App() {
             </button>
           )}
           <span className="pill">Cashier: {user.name}</span>
+          <button className="btn btn-sm" title="Refresh, restart or shut down" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setModal({ t: 'power' })}>
+            <Icon name="power" size={20} />
+          </button>
           {isMgr && <button className="btn btn-sm" style={{ background: 'transparent', color: '#fff', borderColor: '#3a5266' }} onClick={() => setInventory(user.pin)}>
             <Icon name="box" size={20} /> Inventory
           </button>}
@@ -651,6 +673,7 @@ export function App() {
 
       {modal?.t === 'cash' && <CashModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={(t) => completeSale({ tender: 'cash', tenderedCents: t })} />}
       {modal?.t === 'card' && <CardModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={() => completeSale({ tender: 'card', reference: '' })} />}
+      {modal?.t === 'power' && <PowerModal ticketOpen={lines.length > 0} onClose={() => setModal(null)} onPick={power} />}
       {modal?.t === 'gas' && <AskModal title="Gas" onClose={() => setModal(null)} onAdd={(cents) => {
         pushLine({ kind: 'service', service: 'gas', name: 'Gas', qty: 1, unitCents: cents, authorityId: null, category: 'Gas', ageMin: null });
         setModal(null);

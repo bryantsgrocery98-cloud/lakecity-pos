@@ -99,3 +99,22 @@ export async function openCustomerWindow(root: string, url: string): Promise<str
     '--no-first-run', '--disable-session-crashed-bubble', `--user-data-dir=${profile}`], { stdio: 'ignore', detached: true, windowsHide: true }).unref();
   return `Customer screen opened on the ${second.width}x${second.height} monitor.`;
 }
+
+/** Closes the register and customer windows (the browser windows we opened with our own profiles). Windows only. */
+export function closeOurWindows(root: string): Promise<void> {
+  if (process.platform !== 'win32') return Promise.resolve();
+  const marker = path.join(root, 'data'); // both of our browser profiles live under data\
+  return new Promise((resolve) => {
+    const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*user-data-dir=${marker}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`],
+      { windowsHide: true });
+    ps.on('close', () => resolve()); ps.on('error', () => resolve());
+    setTimeout(resolve, 8000);
+  });
+}
+
+/** Restart or shut down the computer (Windows). */
+export function powerOffComputer(reboot: boolean): void {
+  if (process.platform !== 'win32') return;
+  spawn('shutdown.exe', [reboot ? '/r' : '/s', '/t', '3', '/f'], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+}
