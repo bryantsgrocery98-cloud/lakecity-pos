@@ -1,7 +1,7 @@
 {
-  "version": "0.11.4",
-  "file": "lakecity-pos-0.11.4.zip",
-  "sha256": "e7318c91df82a6fa08e6239f5e98a6357f52c85709b892a2684a7e2eeb497f95",
-  "notes": "Blue CARD button with a card symbol.",
-  "builtAt": "2026-10-17T18:04:54.482Z"
+  "version": "0.11.5",
+  "file": "lakecity-pos-0.11.5.zip",
+  "sha256": "399007d96eeb07f45c9c810208868e3970ce0784a9d2c5626a9989fb4dc91dd4",
+  "notes": "Top bar never squeezes (icons only on narrow windows); Full screen option under the power button.",
+  "builtAt": "2026-10-17T18:09:46.665Z"
 }
