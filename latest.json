@@ -1,7 +1,7 @@
 {
-  "version": "0.12.3",
-  "file": "lakecity-pos-0.12.3.zip",
-  "sha256": "d3bc5a4e39e459c0c391470de4cbf2928aa15e16df2a2bf88305a95cdf385339",
-  "notes": "Manual Item: amount + tax group + category, never asks for ID.",
-  "builtAt": "2026-10-17T19:03:52.679Z"
+  "version": "0.12.4",
+  "file": "lakecity-pos-0.12.4.zip",
+  "sha256": "272160c68e9220214d9bc222a6dc830a50115a2df7f15e8330fb768eb2e997fd",
+  "notes": "Minimize button in the top bar.",
+  "builtAt": "2026-10-17T19:09:34.022Z"
 }
