@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { getSetting, openDb } from './db.js';
 import { seedIfEmpty } from './seed.js';
-import { createDisplay } from './display.js';
+import { createDisplay, listScreens, openCustomerWindow } from './display.js';
 import { createUpdater } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -28,5 +28,18 @@ app.listen(port, '127.0.0.1', () => {
   console.log(`POS ${version} running at http://localhost:${port}`);
   if (updateSource && process.env.POS_NO_UPDATE !== '1') updater.start();
   else console.log('[update] no update source set; auto-update is off.');
-  // The customer screen is opened by the launcher (launch.mjs) once the register is up, so a desktop icon brings up both screens.
+  // Customer screen: the launcher opens it at start; this watcher also opens it whenever a second monitor shows up later
+  // (plugged in, woken up, after a reboot) and no customer window is showing.
+  if (process.platform === 'win32' && !process.env.POS_NO_BROWSER) {
+    let lastTry = 0;
+    setInterval(async () => {
+      if (display.clientCount() > 0 || getSetting(db, 'customer_display', 'true') !== 'true') return;
+      if (Date.now() - lastTry < 25_000) return;
+      lastTry = Date.now();
+      try {
+        const screens = await listScreens();
+        if (screens.some((sc) => !sc.primary)) console.log(`[display] ${await openCustomerWindow(root, `http://localhost:${port}/customer`)}`);
+      } catch { /* try again next time */ }
+    }, 30_000).unref();
+  }
 });
