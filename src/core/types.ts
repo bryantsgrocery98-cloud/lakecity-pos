@@ -70,7 +70,10 @@ export type SaleLineInput = {
   itemId?: number;
   buttonId?: number;
   /** For service lines: which service. */
-  service?: 'gas' | 'check_fee' | 'lottery_win';
+  service?: 'gas' | 'check_fee' | 'lottery_win' | 'manual';
+  /** Manual item: which tax group and category the cashier picked. */
+  authorityId?: number | null;
+  category?: string;
   /** For a check-cashing fee line: the amount of the check being cashed. */
   baseCents?: number;
   qty: number;

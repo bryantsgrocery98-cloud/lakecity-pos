@@ -1149,6 +1149,13 @@ function buildLine(db: DB, l: SaleLineInput, i: number): TicketLine {
     const amt = l.unitCents as number;
     if (!Number.isInteger(amt) || amt < 0 || amt > 10_000_000 || (l.service === 'gas' && amt <= 0)) throw new HttpError(400, 'Enter the amount.');
     if (l.service === 'gas') return { key, kind: 'service', service: 'gas', name: 'Gas', qty: 1, unitCents: amt, authorityId: null, category: 'Gas', ageMin: null };
+    if (l.service === 'manual') {
+      // Something not in the system: the cashier picks the amount, the tax group and a category. Never asks for ID.
+      const authId = l.authorityId === null || l.authorityId === undefined ? null : Number(l.authorityId);
+      if (authId !== null && !db.prepare(`SELECT 1 FROM authorities WHERE id = ?`).get(authId)) throw new HttpError(400, 'That tax group does not exist.');
+      const cat = String(l.category ?? 'Manual').trim().slice(0, 40) || 'Manual';
+      return { key, kind: 'service', service: 'manual', name: `Manual item (${cat})`, qty: l.qty, unitCents: amt, authorityId: authId, category: cat, ageMin: null };
+    }
     if (l.service === 'lottery_win') {
       const win = Number(l.baseCents);
       if (!Number.isInteger(win) || win <= 0 || win > 10_000_000) throw new HttpError(400, 'Enter the winning ticket amount.');

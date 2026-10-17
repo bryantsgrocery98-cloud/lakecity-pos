@@ -444,3 +444,16 @@ describe('quick pages and buttons', () => {
     expect((await post('/api/buttons', { pin: '1111', pageId: 1, itemId: cig.id })).status).toBe(403);
   });
 });
+
+describe('manual item', () => {
+  it('rings an amount in a chosen tax group with no ID check', async () => {
+    const alcohol = boot.authorities.find((a) => /alcohol/i.test(a.title))!;
+    const r = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'manual', qty: 1, unitCents: 1000, authorityId: alcohol.id, category: 'Beer' }], payment: { tender: 'cash', tenderedCents: 2000 } });
+    expect(r.status).toBe(200); // no ageCheck sent, still fine
+    const rc = (await r.json()) as Receipt;
+    expect(rc.totals.taxCents).toBe(80);
+    expect(rc.lines[0]!.name).toBe('Manual item (Beer)');
+    const nt = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'manual', qty: 1, unitCents: 500, authorityId: null, category: 'Manual' }], payment: { tender: 'cash', tenderedCents: 500 } });
+    expect(((await nt.json()) as Receipt).totals.taxCents).toBe(0);
+  });
+});

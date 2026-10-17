@@ -2,7 +2,7 @@ import { percentOfCents } from './money.js';
 import { Authority, authorityAmountCents } from './tax.js';
 
 export type LineKind = 'item' | 'button' | 'ask' | 'lottery' | 'service';
-export type ServiceId = 'gas' | 'check_fee' | 'lottery_win';
+export type ServiceId = 'gas' | 'check_fee' | 'lottery_win' | 'manual';
 
 export type TicketLine = {
   /** Unique id inside the ticket (not a database id). */

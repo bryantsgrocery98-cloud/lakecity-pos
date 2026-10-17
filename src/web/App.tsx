@@ -6,7 +6,7 @@ import type { Bootstrap, ButtonDto, CustomerDto, HoldDto, ItemDto, Receipt, Sale
 import { ApiError, api } from './api';
 import {
   AskModal, CardModal, CashModal, ConfirmModal, DiscountModal, DobModal, IdModal, LinkModal, LotteryModal, PayoutModal,
-  ButtonEditModal, CheckModal, CustomerPickModal, NewItemModal, PageEditModal, PinModal, PowerModal, QtyModal, TabChargeModal, TabPaymentModal, RecallModal, ReceiptModal, TodayModal, type AgeInfo, type Lookup,
+  ButtonEditModal, CheckModal, CustomerPickModal, ManualItemModal, NewItemModal, PageEditModal, PinModal, PowerModal, QtyModal, TabChargeModal, TabPaymentModal, RecallModal, ReceiptModal, TodayModal, type AgeInfo, type Lookup,
 } from './modals';
 import { Icon, Keypad, OnScreenKeyboard, Shape } from './parts';
 import { InventoryPage, imageUrl } from './inventory';
@@ -15,7 +15,7 @@ import { installTapSound, play, setSoundsEnabled, soundsEnabled } from './sounds
 import { CategoryArt } from './art';
 
 type ModalState =
-  | { t: 'power' } | { t: 'cash' } | { t: 'card' } | { t: 'check' } | { t: 'gas' }
+  | { t: 'power' } | { t: 'manual' } | { t: 'cash' } | { t: 'card' } | { t: 'check' } | { t: 'gas' }
   | { t: 'editbtn'; button: ButtonDto } | { t: 'editpage'; pageId: number } | { t: 'tabpick' } | { t: 'tabcharge'; customer: CustomerDto } | { t: 'tabpaypick' } | { t: 'tabpay'; customer: CustomerDto } | { t: 'lottery' } | { t: 'payout' } | { t: 'id' } | { t: 'dob' } | { t: 'recall' }
   | { t: 'discount' } | { t: 'today' }
   | { t: 'ask'; button: ButtonDto }
@@ -316,7 +316,7 @@ export function App() {
     if (l.kind === 'item') return { kind: 'item', itemId: l.itemId ?? undefined, qty: l.qty };
     if (l.kind === 'lottery') return { kind: 'lottery', qty: l.qty, unitCents: l.unitCents };
     if (l.kind === 'ask') return { kind: 'ask', buttonId: l.buttonId ?? undefined, qty: l.qty, unitCents: l.unitCents };
-    if (l.kind === 'service') return { kind: 'service', service: l.service, qty: 1, unitCents: l.unitCents, baseCents: l.baseCents };
+    if (l.kind === 'service') return { kind: 'service', service: l.service, qty: l.qty, unitCents: l.unitCents, baseCents: l.baseCents, authorityId: l.authorityId, category: l.category };
     return { kind: 'button', buttonId: l.buttonId ?? undefined, qty: l.qty };
   };
 
@@ -682,7 +682,7 @@ export function App() {
             <button className="svc lotto" onClick={() => setModal({ t: 'lottery' })}><Icon name="ticket" size={28} /><span>Lottery<small>Pick an amount</small></span></button>
             <button className="svc" onClick={() => setModal({ t: 'gas' })}><Icon name="gas" size={28} /><span>Gas<small>Enter the amount</small></span></button>
             <button className="svc" onClick={() => setModal({ t: 'check' })}><Icon name="check" size={28} /><span>Cash a Check<small>{formatCents(boot.settings.checkFeeCents)} fee</small></span></button>
-            <button className="svc" onClick={() => { const b = btnByName('Non-listed Item'); if (b) tapButton(b); }}><Icon name="tag" size={28} /><span>Non-listed Item<small>Enter the price</small></span></button>
+            <button className="svc" onClick={() => setModal({ t: 'manual' })}><Icon name="tag" size={28} /><span>Manual Item<small>Amount + tax group</small></span></button>
             <button className="svc" onClick={() => setModal({ t: 'payout' })}><Icon name="payout" size={28} /><span>Winnings<small>Winning ticket</small></span></button>
           </div>
 
@@ -715,6 +715,11 @@ export function App() {
       {modal?.t === 'tabpay' && <TabPaymentModal customer={modal.customer} cashier={user.name} onClose={() => setModal(null)}
         onDone={(bal) => { setModal(null); showToast(`Payment taken. ${modal.customer.name} now owes ${formatCents(bal)}.`); }} />}
       {modal?.t === 'power' && <PowerModal ticketOpen={lines.length > 0} onClose={() => setModal(null)} onPick={power} />}
+      {modal?.t === 'manual' && <ManualItemModal authorities={boot.authorities} categories={Array.from(new Set(boot.items.map((i) => i.category))).sort()} onClose={() => setModal(null)}
+        onAdd={(cents, authorityId, category) => {
+          pushLine({ kind: 'service', service: 'manual', name: `Manual item (${category})`, qty: 1, unitCents: cents, authorityId, category, ageMin: null });
+          setModal(null);
+        }} />}
       {modal?.t === 'gas' && <AskModal title="Gas" onClose={() => setModal(null)} onAdd={(cents) => {
         pushLine({ kind: 'service', service: 'gas', name: 'Gas', qty: 1, unitCents: cents, authorityId: null, category: 'Gas', ageMin: null });
         setModal(null);

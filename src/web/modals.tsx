@@ -685,3 +685,29 @@ export function PageEditModal({ pageId, name: initial, pin, cashier, onClose, on
     </Modal>
   );
 }
+
+/** Manual item: amount + tax group (+ category) for things not in the system. Never asks for ID. */
+export function ManualItemModal({ authorities, categories, onClose, onAdd }: { authorities: Authority[]; categories: string[]; onClose: () => void; onAdd: (cents: number, authorityId: number | null, category: string) => void }) {
+  const { digits, press } = useDigits(7);
+  const cents = centsFromKeypadDigits(digits);
+  const guess = authorities.find((a) => /grocery|all/i.test(a.title)) ?? authorities[0] ?? null;
+  const [authorityId, setAuthorityId] = useState<number | null>(guess?.id ?? null);
+  const [category, setCategory] = useState('Manual');
+  const cats = ['Manual', ...categories.filter((c) => c !== 'Manual').slice(0, 11)];
+  const go = () => { if (cents > 0) onAdd(cents, authorityId, category); };
+  return (
+    <Modal title="Manual item" onClose={onClose} wide footer={
+      <button className="btn btn-primary btn-block" style={{ minHeight: 56, fontSize: 20 }} disabled={cents <= 0} onClick={go}>Add {formatCents(cents)} · {authorityId === null ? 'no tax' : authorities.find((a) => a.id === authorityId)?.title}</button>}>
+      <div className="field-label">TAX GROUP</div>
+      <div className="chips">
+        {authorities.map((a) => <button key={a.id} className={`chip ${authorityId === a.id ? 'on' : ''}`} onClick={() => setAuthorityId(a.id)}>{a.title}{a.rateBp !== null ? ` ${a.rateBp % 100 === 0 ? a.rateBp / 100 : (a.rateBp / 100).toFixed(2)}%` : ''}</button>)}
+        <button className={`chip ${authorityId === null ? 'on' : ''}`} onClick={() => setAuthorityId(null)}>No tax</button>
+      </div>
+      <div className="field-label">CATEGORY (for the day report)</div>
+      <div className="chips">{cats.map((c) => <button key={c} className={`chip ${category === c ? 'on' : ''}`} onClick={() => setCategory(c)}>{c}</button>)}</div>
+      <div className="field-label">AMOUNT</div>
+      <div className="display num">{formatCents(cents)}</div>
+      <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={go} />
+    </Modal>
+  );
+}
