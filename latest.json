@@ -1,7 +1,7 @@
 {
-  "version": "0.9.2",
-  "file": "lakecity-pos-0.9.2.zip",
-  "sha256": "f944fb8e1e784684c6ba8d78a18337dba0ad150e40d375b35ffd21e912df9021",
-  "notes": "Desktop icon opens the register and the customer screen together.",
-  "builtAt": "2026-10-16T23:44:36.268Z"
+  "version": "0.9.3",
+  "file": "lakecity-pos-0.9.3.zip",
+  "sha256": "5e6bdaf6fb4b401e1552abdacef4ca22950962d4a383afb1cc68ed27819cce0b",
+  "notes": "Power button: refresh screen, restart or close the register, restart or shut down the computer.",
+  "builtAt": "2026-10-17T13:06:21.934Z"
 }
