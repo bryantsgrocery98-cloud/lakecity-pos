@@ -51,7 +51,21 @@ public class RawPrint {
 }
 "@
 Add-Type -TypeDefinition $code
-[RawPrint]::Send($Printer, [System.IO.File]::ReadAllBytes($File))
+# Anything still waiting from earlier (printer was off then) is dropped first, so old receipts never spill out later.
+Get-PrintJob -PrinterName $Printer -ErrorAction SilentlyContinue | Remove-PrintJob -ErrorAction SilentlyContinue
+$pr = Get-Printer -Name $Printer -ErrorAction SilentlyContinue
+if ($pr -and ($pr.PrinterStatus -eq 'Offline' -or $pr.PrinterStatus -eq 'Error' -or $pr.PrinterStatus -eq 'NotAvailable')) { "Printer is off ($($pr.PrinterStatus)); nothing printed."; exit 0 }
+$r = [RawPrint]::Send($Printer, [System.IO.File]::ReadAllBytes($File))
+if ($r -ne 'OK') { $r; exit 0 }
+# Wait for the job to leave the queue. If it is still sitting there, the printer is off: pull it instead of leaving it queued.
+$deadline = (Get-Date).AddSeconds(6)
+while ((Get-Date) -lt $deadline) {
+  $jobs = @(Get-PrintJob -PrinterName $Printer -ErrorAction SilentlyContinue)
+  if ($jobs.Count -eq 0) { "OK"; exit 0 }
+  Start-Sleep -Milliseconds 300
+}
+Get-PrintJob -PrinterName $Printer -ErrorAction SilentlyContinue | Remove-PrintJob -ErrorAction SilentlyContinue
+"Printer is off or not responding; nothing printed."
 `;
 
 function run(cmd: string, args: string[], timeoutMs = 20000): Promise<{ code: number | null; out: string }> {
@@ -85,9 +99,9 @@ export async function sendToPrinter(cfg: PrinterConfig, bytes: Buffer): Promise<
   fs.writeFileSync(tmp, bytes);
   try {
     if (process.platform === 'win32') {
-      const script = path.join(os.tmpdir(), 'pos-rawprint.ps1');
+      const script = path.join(os.tmpdir(), 'pos-rawprint-v2.ps1');
       if (!fs.existsSync(script)) fs.writeFileSync(script, PS_RAW);
-      const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Printer', target, '-File', tmp]);
+      const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Printer', target, '-File', tmp], 30000);
       const msg = r.out.trim().split('\n').pop()?.trim() ?? '';
       if (r.code !== 0 || msg !== 'OK') throw new Error(msg || 'Printing failed. Is the printer on and installed in Windows?');
     } else {
