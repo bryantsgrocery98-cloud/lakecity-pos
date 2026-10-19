@@ -457,3 +457,23 @@ describe('manual item', () => {
     expect(((await nt.json()) as Receipt).totals.taxCents).toBe(0);
   });
 });
+
+describe('lottery winnings smaller than the ticket', () => {
+  it('applies the winnings and takes the rest in cash; payouts count only the winnings', async () => {
+    const before = (await (await fetch(base + '/api/reports/day')).json()) as { lottery: { payouts: number } };
+    const r = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'lottery', qty: 1, unitCents: 1000 }, { kind: 'service', service: 'lottery_win', qty: 1, unitCents: 0, baseCents: 500 }], payment: { tender: 'lottery', cashCents: 500 } });
+    expect(r.status).toBe(200);
+    const rc = (await r.json()) as Receipt;
+    expect(rc.payment.tenderedCents).toBe(500);
+    expect(rc.payment.cashCents).toBe(500);
+    expect(rc.payment.changeCents).toBe(0);
+    const after = (await (await fetch(base + '/api/reports/day')).json()) as { lottery: { payouts: number } };
+    expect(after.lottery.payouts - before.lottery.payouts).toBe(500);
+    // cash given with change
+    const r2 = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'lottery', qty: 1, unitCents: 1000 }, { kind: 'service', service: 'lottery_win', qty: 1, unitCents: 0, baseCents: 500 }], payment: { tender: 'lottery', cashCents: 2000 } });
+    expect(((await r2.json()) as Receipt).payment.changeCents).toBe(1500);
+    // not enough
+    const bad = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'lottery', qty: 1, unitCents: 1000 }, { kind: 'service', service: 'lottery_win', qty: 1, unitCents: 0, baseCents: 500 }], payment: { tender: 'lottery', cashCents: 100 } });
+    expect(bad.status).toBe(400);
+  });
+});

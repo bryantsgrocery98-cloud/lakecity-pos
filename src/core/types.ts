@@ -91,7 +91,9 @@ export type SaleInput = {
   cashier: string;
   discountPct: number;
   lines: SaleLineInput[];
-  payment: { tender: 'cash' | 'card' | 'check' | 'tab' | 'lottery'; tenderedCents?: number; reference?: string; customerId?: number };
+  payment: { tender: 'cash' | 'card' | 'check' | 'tab' | 'lottery'; tenderedCents?: number; reference?: string; customerId?: number;
+    /** Lottery winnings smaller than the ticket: the cash handed over for the rest. */
+    cashCents?: number };
   ageCheck?: AgeCheckInput;
 };
 
@@ -102,7 +104,9 @@ export type Receipt = {
   store: StoreDto;
   lines: { name: string; qty: number; unitCents: number; grossCents: number; discountCents: number }[];
   totals: Totals;
-  payment: { tender: 'cash' | 'card' | 'check' | 'tab' | 'lottery'; amountCents: number; tenderedCents: number | null; changeCents: number | null; reference: string | null; customerName?: string | null; tabBalanceCents?: number | null };
+  payment: { tender: 'cash' | 'card' | 'check' | 'tab' | 'lottery'; amountCents: number; tenderedCents: number | null; changeCents: number | null; reference: string | null; customerName?: string | null; tabBalanceCents?: number | null;
+    /** For a winnings sale: cash the customer added on top of the winnings. */
+    cashCents?: number | null };
 };
 
 export type HoldDto = {

@@ -169,13 +169,16 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     } else if (pay.tender === 'cash' || pay.tender === 'check' || pay.tender === 'lottery') {
       // A cashed check or a winning lottery ticket works like cash handed over: the change is the cash the customer walks out with.
       tendered = Number.isInteger(pay.tenderedCents) ? (pay.tenderedCents as number) : 0;
+      let extraCash = 0;
       if (pay.tender === 'lottery') {
         const wins = lines.filter((l) => l.kind === 'service' && l.service === 'lottery_win').reduce((a, l) => a + (l.baseCents ?? 0), 0);
         if (wins <= 0) throw new HttpError(400, 'Enter the winning ticket amount first.');
-        tendered = wins;
+        tendered = wins; // the payout; cash on top (when the winnings are short) is kept separately so lottery payouts stay right
+        extraCash = Number.isInteger(pay.cashCents) && (pay.cashCents as number) > 0 ? (pay.cashCents as number) : 0;
+        reference = extraCash ? `cash:${extraCash}` : null;
       }
-      if (tendered < totals.totalCents) throw new HttpError(400, pay.tender === 'check' ? 'The check is less than the total.' : pay.tender === 'lottery' ? 'The winnings are less than the total.' : 'The cash given is less than the total.');
-      change = tendered - totals.totalCents;
+      if (tendered + extraCash < totals.totalCents) throw new HttpError(400, pay.tender === 'check' ? 'The check is less than the total.' : pay.tender === 'lottery' ? 'The winnings plus cash are less than the total.' : 'The cash given is less than the total.');
+      change = tendered + extraCash - totals.totalCents;
       if (pay.tender === 'check') reference = String(pay.reference ?? '').trim().slice(0, 24) || null;
     } else {
       // The card machine runs the charge on its own; the register only records that the sale was paid by card.
@@ -219,7 +222,8 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
         receiptNo, createdAt: now.toISOString(), cashier: input.cashier, store,
         lines: lines.map((l, i) => ({ name: l.name, qty: l.qty, unitCents: l.unitCents, grossCents: perLine[i]!.grossCents, discountCents: perLine[i]!.discountCents })),
         totals,
-        payment: { tender: pay.tender, amountCents: totals.totalCents, tenderedCents: tendered, changeCents: change, reference, customerName: tabCustomer?.name ?? null, tabBalanceCents: tabBalance },
+        payment: { tender: pay.tender, amountCents: totals.totalCents, tenderedCents: tendered, changeCents: change, reference, customerName: tabCustomer?.name ?? null, tabBalanceCents: tabBalance,
+          cashCents: pay.tender === 'lottery' ? (Number((reference ?? '').replace('cash:', '')) || 0) : null },
       };
     })();
 
@@ -1125,7 +1129,8 @@ function loadReceipt(db: DB, receiptNo: string): Receipt | null {
     totals: { subtotalCents: s.subtotal_cents, discountCents: s.discount_cents, taxCents: s.tax_cents, totalCents: s.total_cents,
       taxLines: taxLines.map((t) => ({ authorityId: t.authority_id, title: t.title, cents: t.cents })), ageRequired: null },
     payment: { tender: pay.tender, amountCents: pay.amount_cents, tenderedCents: pay.tendered_cents, changeCents: pay.change_cents, reference: pay.reference,
-      customerName: pay.tender === 'tab' ? pay.reference : null, tabBalanceCents: null },
+      customerName: pay.tender === 'tab' ? pay.reference : null, tabBalanceCents: null,
+      cashCents: pay.tender === 'lottery' ? (Number(String(pay.reference ?? '').replace('cash:', '')) || 0) : null },
   };
 }
 

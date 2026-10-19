@@ -25,15 +25,15 @@ function useDigits(max: number) {
   return { digits, press, set: setDigits };
 }
 
-export function CashModal({ total, onClose, onComplete, error, busy }: {
-  total: number; onClose: () => void; onComplete: (tendered: number) => void; error: string; busy: boolean;
+export function CashModal({ total, title, onClose, onComplete, error, busy }: {
+  total: number; title?: string; onClose: () => void; onComplete: (tendered: number) => void; error: string; busy: boolean;
 }) {
   const { digits, press, set } = useDigits(7);
   const tendered = centsFromKeypadDigits(digits);
   const change = tendered - total;
   const bills = [100, 500, 1000, 2000, 5000, 10000];
   return (
-    <Modal title="Cash" onClose={onClose} footer={<>
+    <Modal title={title ?? 'Cash'} onClose={onClose} footer={<>
       <div className={`change ${change < 0 ? 'short' : ''}`} style={{ margin: 0 }}>
         <span>{change < 0 ? 'Still needed' : 'Change due'}</span>
         <span className="num">{formatCents(Math.abs(change))}</span>
@@ -367,7 +367,7 @@ export function ReceiptModal({ receipt, onDone }: { receipt: Receipt; onDone: ()
   return (
     <Modal title="Sale complete">
       {(receipt.payment.tender === 'cash' || receipt.payment.tender === 'check' || receipt.payment.tender === 'lottery') && receipt.payment.changeCents !== null && (
-        <div className="change"><span>{receipt.payment.tender === 'cash' ? 'Change due' : 'Cash to customer'}</span><span className="num">{formatCents(receipt.payment.changeCents)}</span></div>
+        <div className="change"><span>{receipt.payment.tender === 'cash' || (receipt.payment.tender === 'lottery' && receipt.payment.cashCents) ? 'Change due' : 'Cash to customer'}</span><span className="num">{formatCents(receipt.payment.changeCents)}</span></div>
       )}
       <div className="receipt" id="receipt">
         <div className="c"><b>{receipt.store.name}</b><br />{receipt.store.address}{receipt.store.phone ? <><br />{receipt.store.phone}</> : null}</div>
@@ -400,7 +400,8 @@ export function ReceiptModal({ receipt, onDone }: { receipt: Receipt; onDone: ()
         ) : receipt.payment.tender === 'lottery' ? (
           <>
             <div className="r"><span>Winning ticket</span><span>{formatCents(receipt.payment.tenderedCents ?? 0)}</span></div>
-            <div className="r"><span><b>Cash to customer</b></span><span><b>{formatCents(receipt.payment.changeCents ?? 0)}</b></span></div>
+            {!!receipt.payment.cashCents && <div className="r"><span>Cash</span><span>{formatCents(receipt.payment.cashCents)}</span></div>}
+            <div className="r"><span><b>{receipt.payment.cashCents ? 'Change' : 'Cash to customer'}</b></span><span><b>{formatCents(receipt.payment.changeCents ?? 0)}</b></span></div>
           </>
         ) : receipt.payment.tender === 'tab' ? (
           <>

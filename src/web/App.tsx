@@ -15,7 +15,7 @@ import { installTapSound, play, setSoundsEnabled, soundsEnabled } from './sounds
 import { CategoryArt } from './art';
 
 type ModalState =
-  | { t: 'power' } | { t: 'manual' } | { t: 'cash' } | { t: 'card' } | { t: 'check' } | { t: 'gas' }
+  | { t: 'power' } | { t: 'manual' } | { t: 'cash' } | { t: 'wincash' } | { t: 'card' } | { t: 'check' } | { t: 'gas' }
   | { t: 'editbtn'; button: ButtonDto } | { t: 'editpage'; pageId: number } | { t: 'tabpick' } | { t: 'tabcharge'; customer: CustomerDto } | { t: 'tabpaypick' } | { t: 'tabpay'; customer: CustomerDto } | { t: 'lottery' } | { t: 'payout' } | { t: 'id' } | { t: 'dob' } | { t: 'recall' }
   | { t: 'discount' } | { t: 'today' }
   | { t: 'ask'; button: ButtonDto }
@@ -320,7 +320,7 @@ export function App() {
     return { kind: 'button', buttonId: l.buttonId ?? undefined, qty: l.qty };
   };
 
-  const completeSale = async (payment: { tender: 'cash' | 'card' | 'check' | 'tab' | 'lottery'; tenderedCents?: number; reference?: string; customerId?: number }, extraLines: TicketLine[] = []) => {
+  const completeSale = async (payment: { tender: 'cash' | 'card' | 'check' | 'tab' | 'lottery'; tenderedCents?: number; reference?: string; customerId?: number; cashCents?: number }, extraLines: TicketLine[] = []) => {
     if (!user) return;
     setBusy(true); setPayError('');
     try {
@@ -573,6 +573,12 @@ export function App() {
             {totals.discountCents > 0 && <div className="row"><span>Discount {discountPct}%</span><span className="num">-{formatCents(totals.discountCents)}</span></div>}
             {totals.taxLines.map((t) => <div key={t.authorityId} className="row small"><span>{t.title}</span><span className="num">{formatCents(t.cents)}</span></div>)}
             <div className="grand"><span>Total</span><span className="num" data-testid="total">{formatCents(totals.totalCents)}</span></div>
+            {winCents > 0 && (
+              <>
+                <div className="row" style={{ color: '#7a3fb5', fontWeight: 600 }}><span>Lottery winnings</span><span className="num">-{formatCents(winCents)}</span></div>
+                <div className="row" style={{ fontWeight: 800, fontSize: 20 }}><span>{winCashBack >= 0 ? 'Cash to customer' : 'Customer still owes'}</span><span className="num">{formatCents(Math.abs(winCashBack))}</span></div>
+              </>
+            )}
           </div>
 
           {ageStatus !== 'none' && (
@@ -590,10 +596,10 @@ export function App() {
 
           {winCents > 0 && (
             <div className="pay" style={{ paddingBottom: 0 }}>
-              <button className="btn" style={{ flex: 1, minHeight: 64, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', textAlign: 'left', padding: '0 16px', background: '#7a3fb5', color: '#fff', borderColor: '#7a3fb5' }} disabled={!canPay || winCashBack < 0}
-                onClick={() => { if (!canPay) return; setPayError(''); completeSale({ tender: 'lottery', tenderedCents: winCents }); }}>
+              <button className="btn" style={{ flex: 1, minHeight: 64, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', textAlign: 'left', padding: '0 16px', background: '#7a3fb5', color: '#fff', borderColor: '#7a3fb5' }} disabled={!canPay}
+                onClick={() => { if (!canPay) return; setPayError(''); if (winCashBack >= 0) completeSale({ tender: 'lottery', tenderedCents: winCents }); else setModal({ t: 'wincash' }); }}>
                 <span style={{ fontSize: 20 }}>WINNINGS {formatCents(winCents)}</span>
-                <span style={{ fontWeight: 500, fontSize: 15, textAlign: 'right', lineHeight: 1.1 }}>{winCashBack >= 0 ? <>cash to customer<br /><b style={{ fontSize: 18 }}>{formatCents(winCashBack)}</b></> : 'winnings do not cover the ticket'}</span>
+                <span style={{ fontWeight: 500, fontSize: 15, textAlign: 'right', lineHeight: 1.1 }}>{winCashBack >= 0 ? <>cash to customer<br /><b style={{ fontSize: 18 }}>{formatCents(winCashBack)}</b></> : <>customer pays the rest<br /><b style={{ fontSize: 18 }}>{formatCents(-winCashBack)} cash</b></>}</span>
               </button>
             </div>
           )}
@@ -711,6 +717,8 @@ export function App() {
       </div>
 
       {modal?.t === 'cash' && <CashModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={(t) => completeSale({ tender: 'cash', tenderedCents: t })} />}
+      {modal?.t === 'wincash' && <CashModal total={-winCashBack} title={`Cash for the rest · winnings ${formatCents(winCents)} applied`} busy={busy} error={payError} onClose={() => setModal(null)}
+        onComplete={(t) => completeSale({ tender: 'lottery', tenderedCents: winCents, cashCents: t })} />}
       {modal?.t === 'card' && <CardModal total={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)} onComplete={() => completeSale({ tender: 'card', reference: '' })} />}
       {modal?.t === 'editbtn' && <ButtonEditModal button={modal.button} pages={boot.pages.map((p) => ({ id: p.id, name: p.name }))} pin={user.pin} cashier={user.name} onClose={() => setModal(null)}
         onChanged={() => { setModal(null); api<Bootstrap>('/api/bootstrap').then(setBoot).catch(() => {}); }} />}
