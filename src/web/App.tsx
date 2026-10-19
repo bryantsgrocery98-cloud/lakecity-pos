@@ -731,8 +731,9 @@ export function App() {
       {modal?.t === 'tabpay' && <TabPaymentModal customer={modal.customer} cashier={user.name} onClose={() => setModal(null)}
         onDone={(bal) => { setModal(null); showToast(`Payment taken. ${modal.customer.name} now owes ${formatCents(bal)}.`); }} />}
       {modal?.t === 'power' && <PowerModal ticketOpen={lines.length > 0} onClose={() => setModal(null)} onPick={power} />}
-      {modal?.t === 'manual' && <ManualItemModal authorities={boot.authorities} categories={Array.from(new Set(boot.items.map((i) => i.category))).sort()} onClose={() => setModal(null)}
-        onAdd={(cents, authorityId, category) => {
+      {modal?.t === 'manual' && <ManualItemModal authorities={boot.authorities} onClose={() => setModal(null)}
+        onAdd={(cents, authorityId) => {
+          const category = authorityId === null ? 'No tax' : (boot.authorities.find((a) => a.id === authorityId)?.title ?? 'Manual');
           pushLine({ kind: 'service', service: 'manual', name: `Manual item (${category})`, qty: 1, unitCents: cents, authorityId, category, ageMin: null });
           setModal(null);
         }} />}

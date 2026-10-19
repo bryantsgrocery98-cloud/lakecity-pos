@@ -461,7 +461,7 @@ function UpdatesTab({ cashier, version }: { cashier: string; version: string }) 
 // ---------- settings & tax ----------
 
 type AuthRow = { id: number; title: string; type: 'tax' | 'fee'; rateBp: number | null; flatCents: number | null; inUse: number };
-type Settings = { authorities: AuthRow[]; checkFeeCents: number; trackStock: boolean; scanIdOnly: boolean };
+type Settings = { authorities: AuthRow[]; checkFeeCents: number; trackStock: boolean; scanIdOnly: boolean; autoClose: boolean; autoClosePrint: boolean };
 type TaxIssue = { id: number; name: string; category: string; current: string; suggestedId: number | null; suggested: string; why: string };
 
 function pctText(bp: number) { return bp % 100 === 0 ? `${bp / 100}%` : `${(bp / 100).toFixed(2)}%`; }
@@ -530,6 +530,13 @@ function SettingsTab({ pin, cashier }: { pin: string; cashier: string }) {
           {[0, 100, 200, 300, 500].map((c) => <button key={c} className={`chip ${st.checkFeeCents === c ? 'on' : ''}`} onClick={() => save({ checkFeeCents: c })}>{c === 0 ? 'No fee' : formatCents(c)}</button>)}
         </div>
       </div>
+
+      <div className="editor-label">END OF DAY</div>
+      <div className="chips">
+        <button className={`chip ${st.autoClose ? 'on' : ''}`} onClick={() => save({ autoClose: !st.autoClose })}>Close the day automatically at midnight: {st.autoClose ? 'ON' : 'OFF'}</button>
+        <button className={`chip ${st.autoClosePrint ? 'on' : ''}`} onClick={() => save({ autoClosePrint: !st.autoClosePrint })}>Print the Z report when it closes: {st.autoClosePrint ? 'ON' : 'OFF'}</button>
+      </div>
+      <div className="hint">Each day gets its own Z report and the next day starts from zero. If the printer is off at midnight, print it later from the Day report tab.</div>
 
       <div className="editor-label">STOCK</div>
       <div className="chips">

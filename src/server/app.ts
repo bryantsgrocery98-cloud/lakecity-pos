@@ -717,10 +717,12 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
       checkFeeCents: parseInt(getSetting(db, 'check_fee_cents', '100'), 10) || 0,
       trackStock: getSetting(db, 'track_stock', 'true') === 'true',
       scanIdOnly: getSetting(db, 'scan_id_only', 'true') === 'true',
+      autoClose: getSetting(db, 'auto_close', 'true') === 'true',
+      autoClosePrint: getSetting(db, 'auto_close_print', 'true') === 'true',
     });
   }));
   app.post('/api/settings', wrap((req, res) => {
-    const { pin, cashier, checkFeeCents, trackStock, scanIdOnly } = req.body ?? {};
+    const { pin, cashier, checkFeeCents, trackStock, scanIdOnly, autoClose, autoClosePrint } = req.body ?? {};
     if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
     const set = db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`);
     const changes: string[] = [];
@@ -730,6 +732,8 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     }
     if (trackStock !== undefined) { set.run('track_stock', trackStock ? 'true' : 'false'); changes.push(`stock tracking ${trackStock ? 'on' : 'off'}`); }
     if (scanIdOnly !== undefined) { set.run('scan_id_only', scanIdOnly ? 'true' : 'false'); changes.push(`scan ID only ${scanIdOnly ? 'on' : 'off'}`); }
+    if (autoClose !== undefined) { set.run('auto_close', autoClose ? 'true' : 'false'); changes.push(`auto close ${autoClose ? 'on' : 'off'}`); }
+    if (autoClosePrint !== undefined) { set.run('auto_close_print', autoClosePrint ? 'true' : 'false'); changes.push(`auto close print ${autoClosePrint ? 'on' : 'off'}`); }
     if (changes.length) audit(db, String(cashier ?? ''), 'settings', changes.join(', '));
     res.json({ ok: true });
   }));
@@ -1171,10 +1175,11 @@ function buildLine(db: DB, l: SaleLineInput, i: number): TicketLine {
     if (!Number.isInteger(amt) || amt < 0 || amt > 10_000_000 || (l.service === 'gas' && amt <= 0)) throw new HttpError(400, 'Enter the amount.');
     if (l.service === 'gas') return { key, kind: 'service', service: 'gas', name: 'Gas', qty: 1, unitCents: amt, authorityId: null, category: 'Gas', ageMin: null };
     if (l.service === 'manual') {
-      // Something not in the system: the cashier picks the amount, the tax group and a category. Never asks for ID.
+      // Something not in the system: the cashier picks the amount and the tax group. The tax group is the department on the day report. Never asks for ID.
       const authId = l.authorityId === null || l.authorityId === undefined ? null : Number(l.authorityId);
-      if (authId !== null && !db.prepare(`SELECT 1 FROM authorities WHERE id = ?`).get(authId)) throw new HttpError(400, 'That tax group does not exist.');
-      const cat = String(l.category ?? 'Manual').trim().slice(0, 40) || 'Manual';
+      const auth = authId === null ? null : db.prepare(`SELECT title FROM authorities WHERE id = ?`).get(authId) as { title: string } | undefined;
+      if (authId !== null && !auth) throw new HttpError(400, 'That tax group does not exist.');
+      const cat = auth ? auth.title.slice(0, 40) : 'No tax';
       return { key, kind: 'service', service: 'manual', name: `Manual item (${cat})`, qty: l.qty, unitCents: amt, authorityId: authId, category: cat, ageMin: null };
     }
     if (l.service === 'lottery_win') {

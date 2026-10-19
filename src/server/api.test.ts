@@ -452,7 +452,7 @@ describe('manual item', () => {
     expect(r.status).toBe(200); // no ageCheck sent, still fine
     const rc = (await r.json()) as Receipt;
     expect(rc.totals.taxCents).toBe(80);
-    expect(rc.lines[0]!.name).toBe('Manual item (Beer)');
+    expect(rc.lines[0]!.name).toBe(`Manual item (${alcohol.title})`);
     const nt = await post('/api/sales', { cashier: 'Dee', lines: [{ kind: 'service', service: 'manual', qty: 1, unitCents: 500, authorityId: null, category: 'Manual' }], payment: { tender: 'cash', tenderedCents: 500 } });
     expect(((await nt.json()) as Receipt).totals.taxCents).toBe(0);
   });

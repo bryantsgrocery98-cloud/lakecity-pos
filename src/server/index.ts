@@ -7,6 +7,10 @@ import { seedIfEmpty } from './seed.js';
 import { createDisplay, listScreens, openCustomerWindow } from './display.js';
 import { applyDealPresets, clearWrongAgeFlags, linkButtonsToItems } from './deal-presets.js';
 import { createUpdater } from './updater.js';
+import { autoCloseWorkdays } from './reports.js';
+import { zReportBytes } from './escpos.js';
+import { sendToPrinter } from './printer.js';
+import { workdayFor } from '../core/workday.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -35,6 +39,23 @@ app.listen(port, '127.0.0.1', () => {
   console.log(`POS ${version} running at http://localhost:${port}`);
   if (updateSource && process.env.POS_NO_UPDATE !== '1') updater.start();
   else console.log('[update] no update source set; auto-update is off.');
+  // End of day: once the workday rolls over (midnight, or the workday start time in Settings), any day still open is
+  // closed with a Z report automatically and printed if the printer is on. The next day then starts from zero.
+  const autoClose = () => {
+    if (getSetting(db, 'auto_close', 'true') !== 'true') return;
+    try {
+      const today = workdayFor(new Date(), getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00'));
+      for (const report of autoCloseWorkdays(db, today)) {
+        console.log(`[z] closed ${report.workday} automatically`);
+        const target = getSetting(db, 'printer_target', '');
+        if (target && getSetting(db, 'auto_close_print', 'true') === 'true') {
+          sendToPrinter({ target }, zReportBytes(report, getSetting(db, 'store_name', 'POS'), { items: true })).catch((e) => console.log(`[z] print: ${(e as Error).message}`));
+        }
+      }
+    } catch (e) { console.log(`[z] auto close: ${(e as Error).message}`); }
+  };
+  autoClose();
+  setInterval(autoClose, 60_000).unref();
   // Customer screen: the launcher opens it at start; this watcher also opens it whenever a second monitor shows up later
   // (plugged in, woken up, after a reboot) and no customer window is showing.
   if (process.platform === 'win32' && !process.env.POS_NO_BROWSER) {

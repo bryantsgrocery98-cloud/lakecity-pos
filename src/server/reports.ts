@@ -1,5 +1,5 @@
 // X and Z reports for one workday. Voided sales are excluded from every total; refunds are listed separately.
-import type { DB } from './db.js';
+import { audit, type DB } from './db.js';
 import type { ZReport } from './escpos.js';
 
 export function buildDayReport(db: DB, workday: string, cashier: string, title: string): ZReport {
@@ -42,4 +42,24 @@ export function buildDayReport(db: DB, workday: string, cashier: string, title: 
     checks: { count: checks.n, tendered: checks.tendered, cashOut: checks.cashOut },
     tabs: { charged: tabCharged.c, chargedCount: tabCharged.n, payments: tabPay.map((t) => ({ tender: t.tender, cents: t.cents, count: t.count })), paymentsTotal: tabPay.reduce((a, t) => a + t.cents, 0), owedTotal: tabOwed.c },
   };
+}
+
+/**
+ * Closes every earlier workday that still has open sales, so each day starts from zero without anyone
+ * remembering to run the Z. Returns the reports it closed (the caller may print them).
+ */
+export function autoCloseWorkdays(db: DB, currentWorkday: string): ZReport[] {
+  const open = db.prepare(
+    `SELECT DISTINCT workday FROM sales WHERE workday < ? AND workday NOT IN (SELECT workday FROM z_reports) ORDER BY workday`).all(currentWorkday) as { workday: string }[];
+  const out: ZReport[] = [];
+  for (const { workday } of open) {
+    const report = buildDayReport(db, workday, 'Auto close', 'Z REPORT');
+    db.transaction(() => {
+      db.prepare(`INSERT INTO z_reports (workday, closed_at, cashier, report_json) VALUES (?, ?, ?, ?)`).run(workday, new Date().toISOString(), 'Auto close', JSON.stringify(report));
+      db.prepare(`UPDATE sales SET workday_closed = 1 WHERE workday = ?`).run(workday);
+      audit(db, 'system', 'z_report', `${workday} total $${(report.sales.total / 100).toFixed(2)} (closed automatically at end of day)`);
+    })();
+    out.push(report);
+  }
+  return out;
 }
