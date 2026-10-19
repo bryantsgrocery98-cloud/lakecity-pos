@@ -1,7 +1,7 @@
 {
-  "version": "0.13.1",
-  "file": "lakecity-pos-0.13.1.zip",
-  "sha256": "84449a97d54d7ef47637e5be3853500e614f89984b44517c659d5f99e43a93f2",
-  "notes": "Printer: if the printer is off, the print is dropped instead of queued (no pile of old receipts when it comes back on); when it is on, it prints as usual.",
-  "builtAt": "2026-10-19T12:42:50.102Z"
+  "version": "0.13.2",
+  "file": "lakecity-pos-0.13.2.zip",
+  "sha256": "0ada6f7b39007b1ff3ec27c9092774f6cd8584c79e8b0e9d81b555f799387050",
+  "notes": "Printing problems now show their real reason on screen instead of 'Something went wrong'; report printing hardened.",
+  "builtAt": "2026-10-19T13:13:28.027Z"
 }
