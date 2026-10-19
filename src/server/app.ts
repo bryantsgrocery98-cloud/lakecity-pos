@@ -11,6 +11,7 @@ import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } 
 import { listPrinters, listSerialPorts, pulseSerialDrawer, sendToPrinter } from './printer.js';
 import { closeOurWindows, createDisplay, focusRegisterWindow, listScreens, minimizeRegisterWindow, openCustomerWindow, openRegisterWindow, powerOffComputer, type DisplayState } from './display.js';
 import { lookupBarcode, lookupBarcodeLight, lastLookupError } from './lookup.js';
+import { RESTRICTED_RE } from './deal-presets.js';
 import { buildDayReport } from './reports.js';
 import type {
   AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
@@ -365,6 +366,13 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const workday = String(req.query.workday ?? workdayFor(new Date(), getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00')));
     const closed = db.prepare(`SELECT closed_at, cashier FROM z_reports WHERE workday = ? ORDER BY id DESC LIMIT 1`).get(workday) as { closed_at: string; cashier: string } | undefined;
     res.json({ ...buildDayReport(db, workday, String(req.query.cashier ?? ''), closed ? 'Z REPORT (closed)' : 'X REPORT'), closed: closed ?? null });
+  }));
+  // Days that have sales or a closed Z, newest first, so any day's report can be pulled up and printed.
+  app.get('/api/reports/days', wrap((_req, res) => {
+    const rows = db.prepare(`SELECT workday, COUNT(*) n, COALESCE(SUM(total_cents), 0) total FROM sales WHERE voided_at IS NULL GROUP BY workday
+      UNION SELECT workday, 0, 0 FROM z_reports WHERE workday NOT IN (SELECT DISTINCT workday FROM sales) ORDER BY workday DESC LIMIT 90`).all() as { workday: string; n: number; total: number }[];
+    const closed = new Set((db.prepare(`SELECT DISTINCT workday FROM z_reports`).all() as { workday: string }[]).map((r) => r.workday));
+    res.json(rows.map((r) => ({ workday: r.workday, tickets: r.n, totalCents: r.total, closed: closed.has(r.workday) })));
   }));
   app.post('/api/reports/z', wrap(async (req, res) => {
     const { pin, cashier, print } = req.body ?? {};
@@ -863,7 +871,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   app.get('/api/age-check', wrap((_req, res) => {
     const items = db.prepare(`SELECT id, name, size, category, age_min FROM items WHERE active = 1 AND age_min IS NOT NULL ORDER BY category, name`).all() as { id: number; name: string; size: string | null; category: string; age_min: number }[];
     const buttons = db.prepare(`SELECT b.id, b.name, b.category, b.age_min, p.name AS page FROM buttons b JOIN pages p ON p.id = b.page_id WHERE b.age_min IS NOT NULL ORDER BY p.pos, b.pos`).all() as { id: number; name: string; category: string; age_min: number; page: string }[];
-    const looksRestricted = (text: string) => /alcohol|beer|wine|liquor|lager|ale|seltzer|malt|cider|tobacco|cig|cigar|vape|vapor|nicotine|zyn|snuff|dip|grizzly|skoal|copenhagen|swisher|black ?& ?mild|backwoods|newport|marlboro|camel|pall mall|kool|lighter|rolling paper|wraps?|lottery/i.test(text);
+    const looksRestricted = (text: string) => RESTRICTED_RE.test(text);
     res.json({
       items: items.map((i) => ({ id: i.id, name: i.size ? `${i.name} ${i.size}` : i.name, category: i.category, ageMin: i.age_min, suspicious: !looksRestricted(`${i.name} ${i.category}`) })),
       buttons: buttons.map((b) => ({ id: b.id, name: b.name, page: b.page, category: b.category, ageMin: b.age_min, suspicious: !looksRestricted(`${b.name} ${b.category}`) })),

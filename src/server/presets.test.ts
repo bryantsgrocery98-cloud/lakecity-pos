@@ -41,3 +41,16 @@ describe('linking quick buttons to items', () => {
     expect(linkButtonsToItems(db)).toBe(0);
   });
 });
+
+describe('clearing wrong ID flags', () => {
+  it('clears 21+ on sodas and leaves beer and cigarettes alone', async () => {
+    const { clearWrongAgeFlags } = await import('./deal-presets.js');
+    const db = openDb(':memory:');
+    const item = db.prepare(`INSERT INTO items (name, size, price_cents, category, authority_id, age_min, color, frequent, qty_on_hand) VALUES (?, ?, 100, ?, NULL, ?, '#000', 0, 0)`);
+    item.run('Coke', '20 oz', 'Drinks', 21); item.run('Natural Light Can', '12 oz', 'Beer', 21); item.run('Newport Box', null, 'Tobacco', 21); item.run('Root Beer', '20 oz', 'Drinks', 21); item.run('Mountain Dew', '20 oz', 'Alcohol', 21);
+    expect(clearWrongAgeFlags(db)).toBe(3); // Coke, Root Beer, Mountain Dew (soda wrongly filed under Alcohol)
+    const rows = db.prepare(`SELECT name, age_min FROM items ORDER BY id`).all() as { name: string; age_min: number | null }[];
+    expect(rows.map((r) => r.age_min)).toEqual([null, 21, 21, null, null]);
+    expect(clearWrongAgeFlags(db)).toBe(0);
+  });
+});

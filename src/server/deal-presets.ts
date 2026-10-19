@@ -59,3 +59,36 @@ export function linkButtonsToItems(db: DB): number {
   }
   return n;
 }
+
+export const SOFT_RE = /root beer|ginger beer|birch beer|non-?alcoholic|alcohol-free|beer nuts|beer cheese|beer batter|rum cake|bourbon chicken|wine gums/gi;
+export const FOOD_RE = /\b(soda|cola|coke|pepsi|sprite|dr pepper|mountain dew|fanta|water|juice|tea|coffee|milk|energy|gatorade|powerade|monster|red bull|starbucks|chips|candy|chocolate|cookie|cookies|cake|gum|snack|crackers|jerky|nuts|peanuts|honey bun|donut|bread|sausage|hot dog|pickle|egg|cheese|sandwich|burrito|pizza|ice cream|popsicle|cereal|rice|beans|sugar|flour|ketchup|mustard|mayo|syrup|oatmeal|noodle|ramen|soup|fruit|banana|apple|ice bag|ice cup|cup)\b/i;
+export const RESTRICTED_RE = /alcohol|beer|wine|liquor|lager|\bale\b|seltzer|malt|cider|vodka|whiskey|whisky|bourbon|rum\b|tequila|gin\b|brandy|moonshine|margarita|twisted tea|smirnoff|four loko|mike'?s|buzzball|tobacco|cig|cigar|vape|vapor|nicotine|zyn|snuff|\bdip\b|grizzly|skoal|copenhagen|swisher|black ?& ?mild|backwoods|newport|marlboro|camel|pall mall|kool|lighter|rolling paper|\bwraps?\b|lottery|geek bar|elf bar|hookah|rizla|zig.?zag/i;
+
+/**
+ * Clears the 21+ flag from items and quick buttons that are not alcohol or tobacco by name or category.
+ * Runs once per cleanup version; everything it changes is written to the audit log.
+ */
+export const AGE_CLEANUP_VERSION = '1';
+export function clearWrongAgeFlags(db: DB): number {
+  if (getSetting(db, 'age_cleanup_applied', '') === AGE_CLEANUP_VERSION) return 0;
+  const items = db.prepare(`SELECT id, name, category FROM items WHERE age_min IS NOT NULL`).all() as { id: number; name: string; category: string }[];
+  const buttons = db.prepare(`SELECT id, name, category FROM buttons WHERE age_min IS NOT NULL`).all() as { id: number; name: string; category: string }[];
+  const wrong = (name: string, category: string) => {
+    const n = name.replace(SOFT_RE, ''); // "root beer" is not beer
+    if (RESTRICTED_RE.test(n)) return false;                 // the name says alcohol/tobacco: keep the flag
+    if (!RESTRICTED_RE.test(category)) return true;          // neither name nor category restricted: clear
+    return FOOD_RE.test(n);                                  // category says alcohol but the name is plainly a soda/snack: clear
+  };
+  const wrongItems = items.filter((i) => wrong(i.name, i.category));
+  const wrongButtons = buttons.filter((b) => wrong(b.name, b.category));
+  db.transaction(() => {
+    const ui = db.prepare(`UPDATE items SET age_min = NULL WHERE id = ?`);
+    const ub = db.prepare(`UPDATE buttons SET age_min = NULL WHERE id = ?`);
+    for (const i of wrongItems) ui.run(i.id);
+    for (const b of wrongButtons) ub.run(b.id);
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('age_cleanup_applied', ?)`).run(AGE_CLEANUP_VERSION);
+  })();
+  const n = wrongItems.length + wrongButtons.length;
+  if (n) audit(db, 'system', 'age_cleanup', `cleared ID flag on ${wrongItems.length} items, ${wrongButtons.length} buttons: ${[...wrongItems, ...wrongButtons].map((x) => x.name).slice(0, 40).join(', ')}`);
+  return n;
+}

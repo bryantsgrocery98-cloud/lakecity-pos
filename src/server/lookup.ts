@@ -29,7 +29,7 @@ const cache = new Map<string, { at: number; value: Lookup }>();
 type OffProduct = { product_name?: string; product_name_en?: string; brands?: string; quantity?: string; image_front_url?: string; image_url?: string; categories_tags?: string[] };
 
 export function guessCategory(tags: string[]): { category: string | null; ageMin: number | null } {
-  const t = tags.join(' ').toLowerCase();
+  const t = tags.join(' ').toLowerCase().replace(/non-?alcoholic[a-z-]*/g, '').replace(/alcohol-free[a-z-]*/g, '');
   if (/alcohol|beers|wines|spirits|liquor|hard-seltzer|ciders/.test(t)) return { category: 'Alcohol', ageMin: 21 };
   if (/tobacco|cigarette|cigar|vap|nicotine|snus/.test(t)) return { category: 'Tobacco', ageMin: 21 };
   if (/beverages|drinks|waters|sodas|juices|energy|coffee|teas|milks/.test(t)) return { category: 'Drinks', ageMin: null };

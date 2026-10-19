@@ -183,27 +183,44 @@ function RefundModal({ sale, pin, cashier, onClose, onDone }: { sale: SaleRow; p
 
 // ---------- day report ----------
 
+type DayRow = { workday: string; tickets: number; totalCents: number; closed: boolean };
+
 function DayTab({ pin, cashier }: { pin: string; cashier: string }) {
   const [r, setR] = useState<DayReport | null>(null);
+  const [days, setDays] = useState<DayRow[]>([]);
+  const [day, setDay] = useState<string | null>(null); // null = today
   const [msg, setMsg] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
-  const load = () => api<DayReport>(`/api/reports/day?cashier=${encodeURIComponent(cashier)}`).then(setR).catch((e: Error) => setMsg(e.message));
-  useEffect(() => { load(); }, []);
+  const load = (d: string | null = day) => api<DayReport>(`/api/reports/day?cashier=${encodeURIComponent(cashier)}${d ? `&workday=${d}` : ''}`).then(setR).catch((e: Error) => setMsg(e.message));
+  const loadDays = () => api<DayRow[]>('/api/reports/days').then(setDays).catch(() => {});
+  useEffect(() => { load(null); loadDays(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, []);
+  const pick = (d: string | null) => { setDay(d); setR(null); load(d); };
   const print = async (items: boolean) => {
     setBusy(true);
-    try { await api('/api/reports/print', { cashier, items }); setMsg('Report sent to the printer.'); } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+    try { await api('/api/reports/print', { cashier, items, workday: day ?? undefined }); setMsg('Report sent to the printer.'); play('done'); } catch (e) { setMsg((e as Error).message); play('bad'); } finally { setBusy(false); }
   };
+  const niceDay = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   const closeDay = async () => {
     setBusy(true); setConfirm(false);
     try {
       const res = await api<{ printed: boolean; printError: string }>('/api/reports/z', { pin, cashier, print: true });
-      play('done'); setMsg(res.printed ? 'Day closed and Z report printed.' : `Day closed.${res.printError ? ` Printing failed: ${res.printError}` : ''}`); load();
+      play('done'); setMsg(res.printed ? 'Day closed and Z report printed.' : `Day closed.${res.printError ? ` Printing failed: ${res.printError}` : ' (No printer set up, so nothing printed.)'}`); load(); loadDays();
     } catch (e) { setMsg((e as Error).message); play('bad'); } finally { setBusy(false); }
   };
-  if (!r) return <div className="hint">Loading…</div>;
   const Row = ({ l, v, b }: { l: string; v: string; b?: boolean }) => <tr><td>{b ? <b>{l}</b> : l}</td><td className="num">{b ? <b>{v}</b> : v}</td></tr>;
+  const picker = (
+    <div className="chips" style={{ marginBottom: 12 }}>
+      <button className={`chip ${day === null ? 'on' : ''}`} onClick={() => pick(null)}>Today</button>
+      {days.filter((d) => !r || d.workday !== (day === null ? r.workday : '')).slice(0, 30).map((d) => (
+        <button key={d.workday} className={`chip ${day === d.workday ? 'on' : ''}`} onClick={() => pick(d.workday)}>{niceDay(d.workday)}{d.closed ? ' · Z' : ''}</button>
+      ))}
+    </div>
+  );
+  if (!r) return <div>{picker}<div className="hint">Loading…</div></div>;
   return (
+    <div>
+    {picker}
     <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
       <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
         <div className="field" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
@@ -254,12 +271,14 @@ function DayTab({ pin, cashier }: { pin: string; cashier: string }) {
       </div>
       <aside className="inv-edit" style={{ width: 320, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {msg && <div className="inv-msg" style={{ margin: 0 }}>{msg}</div>}
-        <button className="btn btn-block" disabled={busy} onClick={() => print(false)}>Print X report</button>
+        <button className="btn btn-block" disabled={busy} onClick={() => print(false)}>{r.closed ? 'Print Z report' : 'Print X report'}</button>
         <button className="btn btn-block" disabled={busy} onClick={() => print(true)}>Print with items sold</button>
-        <div className="hint">An X report shows the day so far without closing it.</div>
-        <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 20 }} disabled={busy || !!r.closed} onClick={() => setConfirm(true)}>{r.closed ? 'Day already closed' : 'Close day (Z report)'}</button>
-        <div className="hint">Closing prints the Z report and locks today's sales from being voided. Refunds still work afterwards.</div>
-        <button className="btn btn-block btn-quiet" onClick={load}>Refresh</button>
+        {day === null ? <>
+          <div className="hint">An X report shows the day so far without closing it.</div>
+          <button className="btn btn-primary btn-block" style={{ minHeight: 64, fontSize: 20 }} disabled={busy || !!r.closed} onClick={() => setConfirm(true)}>{r.closed ? 'Day already closed' : 'Close day (Z report)'}</button>
+          <div className="hint">Closing prints the Z report on the receipt printer and locks today's sales from being voided. Refunds still work afterwards.</div>
+        </> : <div className="hint">Looking at {niceDay(r.workday)}{r.closed ? ' (closed)' : ' (never closed)'}. Tap Today to go back.</div>}
+        <button className="btn btn-block btn-quiet" onClick={() => load()}>Refresh</button>
       </aside>
       {confirm && (
         <Modal title="Close the day?" onClose={() => setConfirm(false)}>
@@ -268,6 +287,7 @@ function DayTab({ pin, cashier }: { pin: string; cashier: string }) {
           <button className="btn btn-block" onClick={() => setConfirm(false)}>Not yet</button>
         </Modal>
       )}
+    </div>
     </div>
   );
 }

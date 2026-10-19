@@ -5,7 +5,7 @@ import { createApp } from './app.js';
 import { getSetting, openDb } from './db.js';
 import { seedIfEmpty } from './seed.js';
 import { createDisplay, listScreens, openCustomerWindow } from './display.js';
-import { applyDealPresets, linkButtonsToItems } from './deal-presets.js';
+import { applyDealPresets, clearWrongAgeFlags, linkButtonsToItems } from './deal-presets.js';
 import { createUpdater } from './updater.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -19,6 +19,8 @@ const db = openDb(dbFile);
 if (seedIfEmpty(db)) console.log('Loaded demo products. Demo PINs: cashier 1111, manager 2222, owner 3333.');
 const presetDeals = applyDealPresets(db);
 if (presetDeals) console.log(`[deals] set shelf deals on ${presetDeals} items`);
+const cleared = clearWrongAgeFlags(db);
+if (cleared) console.log(`[id] cleared the ID flag on ${cleared} items/buttons that are not alcohol or tobacco`);
 const linked = linkButtonsToItems(db);
 if (linked) console.log(`[buttons] linked ${linked} quick buttons to their inventory items`);
 
