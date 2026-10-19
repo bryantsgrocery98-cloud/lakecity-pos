@@ -1110,7 +1110,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
     console.error(err);
-    const detail = err instanceof Error && err.message ? ` (${err.message.split('\n')[0].slice(0, 160)})` : '';
+    const detail = err instanceof Error && err.message ? ` (${err.message.split('\n')[0]?.slice(0, 160) ?? ''})` : '';
     res.status(500).json({ error: `Something went wrong. Please try again.${detail}` });
   });
   return app;
