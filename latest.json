@@ -1,7 +1,7 @@
 {
-  "version": "0.13.0",
-  "file": "lakecity-pos-0.13.0.zip",
-  "sha256": "d1c7b9b194f19c7ddeb115d31056a9306f4a482d8929baeaecb80901664f2a15",
-  "notes": "ID flags cleaned up (sodas etc. no longer ask for ID); non-alcoholic lookup fix; past-day Z reports with print; lottery winnings smaller than the ticket take the rest in cash.",
-  "builtAt": "2026-10-19T12:27:56.260Z"
+  "version": "0.13.1",
+  "file": "lakecity-pos-0.13.1.zip",
+  "sha256": "84449a97d54d7ef47637e5be3853500e614f89984b44517c659d5f99e43a93f2",
+  "notes": "Printer: if the printer is off, the print is dropped instead of queued (no pile of old receipts when it comes back on); when it is on, it prints as usual.",
+  "builtAt": "2026-10-19T12:42:50.102Z"
 }
