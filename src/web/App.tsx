@@ -615,7 +615,8 @@ export function App() {
           <div className="pay">
             <button className="btn btn-cash" disabled={!canPay} onClick={() => startPay('cash')}><span className="cash-sign">$</span> CASH</button>
             <button className="btn btn-card" disabled={!canPay} onClick={() => startPay('card')}><Icon name="card" size={26} /> CARD</button>
-            <button className="btn btn-dark" style={{ flex: 0.7 }} disabled={!canPay} onClick={() => { if (!canPay) return; setPayError(''); setModal({ t: 'tabpick' }); }}>TAB</button>
+            <button className="btn btn-check" disabled={!canPay && checkCents === 0}
+              onClick={() => { setPayError(''); if (checkCents > 0) { if (canPay && checkCashBack >= 0) completeSale({ tender: 'check', tenderedCents: checkCents }); } else setModal({ t: 'check' }); }}><Icon name="check" size={24} /> CHECK</button>
           </div>
           {lines.length > 0 && (
             <div className="cancel-row">
@@ -705,6 +706,7 @@ export function App() {
             <button className="act" onClick={openRecall}><Icon name="recall" /> Recall</button>
             <button className="act" onClick={() => noSale()}><Icon name="drawer" /> Open Register</button>
             <button className="act" onClick={() => setModal({ t: 'discount' })}><Icon name="discount" /> Discount</button>
+            <button className="act" onClick={() => { if (!canPay) { showToast('Ring up the items first.'); return; } setPayError(''); setModal({ t: 'tabpick' }); }}><Icon name="id" /> Charge to Tab</button>
             <button className="act" onClick={() => setModal({ t: 'tabpaypick' })}><Icon name="id" /> Pay on Tab</button>
           </div>
 

@@ -54,7 +54,7 @@ h1, h2, h3 { margin: 0; }
 .age-banner .t span { font-size: 14px; }
 
 .pay { flex: none; display: flex; gap: 10px; padding: 10px 12px 12px; }
-.pay .btn { flex: 1; height: 66px; font-size: 24px; letter-spacing: .04em; }
+.pay .btn { flex: 1; min-width: 0; height: 66px; font-size: 22px; letter-spacing: .02em; padding: 0 6px; }
 .cancel-row { flex: none; padding: 0 12px 10px; }
 
 .right { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 14px; gap: 10px; min-height: 0; }
@@ -85,7 +85,8 @@ h1, h2, h3 { margin: 0; }
 
 .services, .actions { flex: none; display: grid; gap: 10px; }
 .services { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.actions { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.actions { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.actions .act { font-size: 15px; padding: 0 4px; }
 .svc { height: 62px; border-radius: 12px; border: 2px solid #8da2b3; background: #eaf0f5; display: flex; align-items: center; gap: 8px; padding: 0 10px; text-align: left; font-size: 16px; font-weight: 600; }
 .svc.lotto { border-color: #5db68a; background: var(--good-bg); color: #0b4a33; }
 .svc small { display: block; font-size: 12px; font-weight: 400; }
@@ -281,6 +282,8 @@ table.rep td:last-child { text-align: right; }
 @media (max-height: 900px) { .modal-body { gap: 8px; } }
 
 .btn-cash { background: #15a34a; color: #fff; border-color: #15a34a; font-weight: 800; letter-spacing: .03em; }
+.btn-check { background: #334155; color: #fff; border-color: #334155; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 20px !important; letter-spacing: 0 !important; min-width: 0; padding: 0 6px; }
+.btn-check:disabled { background: #b8c0cc; border-color: #b8c0cc; color: #f4f6f9; }
 .btn-cash:disabled { background: #a9d9bb; border-color: #a9d9bb; color: #f4fbf6; }
 .btn-cash .cash-sign { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,.22); font-size: 20px; margin-right: 6px; }
 
