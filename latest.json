@@ -1,7 +1,7 @@
 {
-  "version": "0.12.5",
-  "file": "lakecity-pos-0.12.5.zip",
-  "sha256": "55e09a8df291029c3099ebf461d677de3e874bb44c2b86ce1f22fd5c1f07de94",
-  "notes": "Add-new-item no longer defaults to an age-restricted category.",
-  "builtAt": "2026-10-17T19:19:32.583Z"
+  "version": "0.13.0",
+  "file": "lakecity-pos-0.13.0.zip",
+  "sha256": "d1c7b9b194f19c7ddeb115d31056a9306f4a482d8929baeaecb80901664f2a15",
+  "notes": "ID flags cleaned up (sodas etc. no longer ask for ID); non-alcoholic lookup fix; past-day Z reports with print; lottery winnings smaller than the ticket take the rest in cash.",
+  "builtAt": "2026-10-19T12:27:56.260Z"
 }
