@@ -1,7 +1,7 @@
 {
-  "version": "0.14.0",
-  "file": "lakecity-pos-0.14.0.zip",
-  "sha256": "a97d43391d563add451ef012338e05cf6a32cea16b97191d54e6510755759219",
-  "notes": "End of day closes itself: at midnight any open day gets its Z report (printed if the printer is on) and the new day starts at zero; toggle under Settings & Tax. Manual item now asks only for the tax group, which is its department on the Z report.",
-  "builtAt": "2026-10-19T14:12:54.259Z"
+  "version": "0.14.1",
+  "file": "lakecity-pos-0.14.1.zip",
+  "sha256": "088041544efc0d430063f3aa0c84db8d3a6ce2577bd51ff5b24e2c622c12e08e",
+  "notes": "CHECK button at the bottom of the cart next to CASH and CARD; TAB moved off the pay row to a Charge to Tab button next to Pay on Tab.",
+  "builtAt": "2026-10-19T14:57:39.238Z"
 }
