@@ -12,7 +12,7 @@ export class EscPos {
   constructor(private cols = COLS) { this.raw([ESC, 0x40]); } // initialize
   raw(bytes: number[] | Buffer) { this.parts.push(Buffer.from(bytes)); return this; }
   text(s: string) { this.parts.push(Buffer.from(s.replace(/[^\x20-\x7e\n]/g, '?'), 'latin1')); return this; }
-  line(s = '') { return this.text(s + '\n'); }
+  line(s: string | null | undefined = '') { return this.text(String(s ?? '') + '\n'); }
   align(a: 'left' | 'center' | 'right') { return this.raw([ESC, 0x61, a === 'left' ? 0 : a === 'center' ? 1 : 2]); }
   bold(on: boolean) { return this.raw([ESC, 0x45, on ? 1 : 0]); }
   size(w: 1 | 2, h: 1 | 2) { return this.raw([GS, 0x21, ((w - 1) << 4) | (h - 1)]); }
@@ -22,7 +22,8 @@ export class EscPos {
   drawer() { return this.raw(drawerBytes()); }
   rule(ch = '-') { return this.line(ch.repeat(this.cols)); }
   /** Two columns: left text and right-aligned value on one line. */
-  row(left: string, right: string) {
+  row(left: string | null | undefined, right: string | null | undefined) {
+    left = String(left ?? ''); right = String(right ?? '');
     const r = right.slice(0, this.cols - 1);
     const maxL = this.cols - r.length - 1;
     const l = left.length > maxL ? left.slice(0, maxL) : left;

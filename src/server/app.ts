@@ -48,13 +48,18 @@ export type AppExtras = { updater?: ReturnType<typeof createUpdater>; version?: 
 
 export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   const app = express();
+  /** Sends bytes to the receipt printer; a printer problem comes back to the screen as its own message, not "Something went wrong". */
+  const print = async (bytes: Buffer, target = getSetting(db, 'printer_target', '')): Promise<void> => {
+    try { await sendToPrinter({ target }, bytes); }
+    catch (e) { throw new HttpError(502, (e as Error).message || 'Printing failed.'); }
+  };
   /** Opens the cash drawer: through its own USB/COM port when one is set, otherwise through the receipt printer. */
   const openDrawer = async (): Promise<void> => {
     const port = getSetting(db, 'drawer_port', '');
     if (port) { await pulseSerialDrawer(port, drawerBytes()); return; }
     const printer = getSetting(db, 'printer_target', '');
     if (!printer) throw new Error('No cash drawer is set up. Pick the drawer port or receipt printer under Manage → Printer.');
-    await sendToPrinter({ target: printer }, drawerBytes());
+    await print(drawerBytes(), printer);
   };
   const receiptText = (): ReceiptText => ({
     headerLines: getSetting(db, 'receipt_header', [getSetting(db, 'store_address', ''), getSetting(db, 'store_phone', '')].filter(Boolean).join('\n')).split('\n'),
@@ -269,7 +274,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   }));
   app.post('/api/printer/test', wrap(async (req, res) => {
     const target = String(req.body?.target ?? getSetting(db, 'printer_target', ''));
-    await sendToPrinter({ target }, testBytes(getSetting(db, 'store_name', 'POS')));
+    await print(testBytes(getSetting(db, 'store_name', 'POS')), target);
     res.json({ ok: true });
   }));
   app.post('/api/printer/drawer', wrap(async (req, res) => {
@@ -280,7 +285,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   app.post('/api/sales/:receiptNo/print', wrap(async (req, res) => {
     const r = loadReceipt(db, String(req.params.receiptNo));
     if (!r) throw new HttpError(404, 'Receipt not found.');
-    await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, receiptBytes(r, { text: receiptText() }));
+    await print(receiptBytes(r, { text: receiptText() }));
     res.json({ ok: true });
   }));
 
@@ -400,7 +405,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     const workday = String(req.body?.workday ?? workdayFor(new Date(), getSetting(db, 'timezone', 'America/New_York'), getSetting(db, 'workday_start', '00:00')));
     const closed = db.prepare(`SELECT 1 FROM z_reports WHERE workday = ?`).get(workday);
     const report = buildDayReport(db, workday, String(req.body?.cashier ?? ''), closed ? 'Z REPORT (reprint)' : 'X REPORT');
-    await sendToPrinter({ target: getSetting(db, 'printer_target', '') }, zReportBytes(report, getSetting(db, 'store_name', 'POS'), { items: !!req.body?.items }));
+    await print(zReportBytes(report, getSetting(db, 'store_name', 'POS'), { items: !!req.body?.items }));
     res.json({ ok: true });
   }));
 
@@ -1105,7 +1110,8 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
     console.error(err);
-    res.status(500).json({ error: 'Something went wrong. Please try again.' });
+    const detail = err instanceof Error && err.message ? ` (${err.message.split('\n')[0].slice(0, 160)})` : '';
+    res.status(500).json({ error: `Something went wrong. Please try again.${detail}` });
   });
   return app;
 }
