@@ -62,7 +62,7 @@ export function linkButtonsToItems(db: DB): number {
 
 export const SOFT_RE = /root beer|ginger beer|birch beer|non-?alcoholic|alcohol-free|beer nuts|beer cheese|beer batter|rum cake|bourbon chicken|wine gums/gi;
 export const FOOD_RE = /\b(soda|cola|coke|pepsi|sprite|dr pepper|mountain dew|fanta|water|juice|tea|coffee|milk|energy|gatorade|powerade|monster|red bull|starbucks|chips|candy|chocolate|cookie|cookies|cake|gum|snack|crackers|jerky|nuts|peanuts|honey bun|donut|bread|sausage|hot dog|pickle|egg|cheese|sandwich|burrito|pizza|ice cream|popsicle|cereal|rice|beans|sugar|flour|ketchup|mustard|mayo|syrup|oatmeal|noodle|ramen|soup|fruit|banana|apple|ice bag|ice cup|cup)\b/i;
-export const RESTRICTED_RE = /alcohol|beer|wine|liquor|lager|\bale\b|seltzer|malt|cider|vodka|whiskey|whisky|bourbon|rum\b|tequila|gin\b|brandy|moonshine|margarita|twisted tea|smirnoff|four loko|mike'?s|buzzball|tobacco|cig|cigar|vape|vapor|nicotine|zyn|snuff|\bdip\b|grizzly|skoal|copenhagen|swisher|black ?& ?mild|backwoods|newport|marlboro|camel|pall mall|kool|lighter|rolling paper|\bwraps?\b|lottery|geek bar|elf bar|hookah|rizla|zig.?zag/i;
+export const RESTRICTED_RE = /alcohol|beer|wine|liquor|lager|\bale\b|seltzer|malt|cider|vodka|whiskey|whisky|bourbon|rum\b|tequila|gin\b|brandy|moonshine|margarita|twisted tea|smirnoff|four loko|mike'?s|buzzball|tobacco|cig|cigar|vape|vapor|nicotine|zyn|snuff|\bdip\b|grizzly|skoal|copenhagen|swisher|black ?& ?mild|backwoods|newport|marlboro|camel|pall mall|kool|lighter|rolling paper|\bwraps?\b|lottery|geek bar|elf bar|hookah|rizla|zig.?zag|natural light|natty|busch|coors|miller lite|bud light|budweiser|michelob|corona|modelo|heineken|yuengling|white claw|truly|high noon|nutrl|steel reserve|old english|colt 45|icehouse|keystone|milwaukee|pabst|pbr\b/i;
 
 /**
  * Clears the 21+ flag from items and quick buttons that are not alcohol or tobacco by name or category.
@@ -91,4 +91,37 @@ export function clearWrongAgeFlags(db: DB): number {
   const n = wrongItems.length + wrongButtons.length;
   if (n) audit(db, 'system', 'age_cleanup', `cleared ID flag on ${wrongItems.length} items, ${wrongButtons.length} buttons: ${[...wrongItems, ...wrongButtons].map((x) => x.name).slice(0, 40).join(', ')}`);
   return n;
+}
+
+/** Product barcodes are 6, 8, 12, 13 or 14 digits (or a short PLU). Anything else is probably the number off a driver's license. */
+export function looksLikeIdNumber(code: string): boolean {
+  const c = code.trim();
+  if (!/^\d+$/.test(c)) return /^[A-Z]\d{6,}$/i.test(c) && c.length >= 7; // letter + digits, like many state license numbers
+  return c.length === 9 || c.length === 10 || c.length === 11 || c.length >= 15;
+}
+
+/** Stricter than looksLikeIdNumber: never a product code (UPC/EAN are 6, 8, 12, 13 or 14 digits; 11 is a UPC missing its leading zero). */
+export function certainlyIdNumber(code: string): boolean {
+  const c = code.trim();
+  if (!/^\d+$/.test(c)) return /^[A-Z]\d{6,}$/i.test(c) && c.length >= 7;
+  return c.length === 9 || c.length === 10 || c.length >= 15;
+}
+
+/**
+ * Removes barcodes on age-restricted items that look like a license number rather than a product code (linked by
+ * accident from the "New barcode" screen). That is how scanning an ID could ring up a beer. Runs once; returns what it fixed.
+ */
+export function unlinkIdBarcodes(db: DB): string[] {
+  // The first pass (once) also dropped 11-digit codes; every start since then drops only codes that can never be a product.
+  const firstPass = getSetting(db, 'id_barcode_cleanup_applied', '') !== '1';
+  const rows = db.prepare(`SELECT b.code, b.item_id, i.name FROM barcodes b JOIN items i ON i.id = b.item_id WHERE i.age_min IS NOT NULL`).all() as { code: string; item_id: number; name: string }[];
+  const fixed: string[] = [];
+  for (const r of rows) {
+    if (!(firstPass ? looksLikeIdNumber(r.code) : certainlyIdNumber(r.code))) continue;
+    db.prepare(`DELETE FROM barcodes WHERE code = ? AND item_id = ?`).run(r.code, r.item_id);
+    db.prepare(`INSERT INTO audit_log (ts, cashier, action, detail) VALUES (?, 'system', 'barcode_unlinked', ?)`).run(new Date().toISOString(), `${r.name}: ${r.code} looked like an ID number, not a product barcode`);
+    fixed.push(`${r.name} (${r.code})`);
+  }
+  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('id_barcode_cleanup_applied', '1')`).run();
+  return fixed;
 }

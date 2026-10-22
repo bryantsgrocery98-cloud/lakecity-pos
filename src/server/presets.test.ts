@@ -54,3 +54,11 @@ describe('clearing wrong ID flags', () => {
     expect(clearWrongAgeFlags(db)).toBe(0);
   });
 });
+
+describe('license numbers linked as barcodes', () => {
+  it('tells product codes from ID numbers', async () => {
+    const { looksLikeIdNumber } = await import('./deal-presets.js');
+    for (const ok of ['012345678905', '0123456789012', '12345678', '1234', '4011']) expect(looksLikeIdNumber(ok)).toBe(false);
+    for (const bad of ['123456789', '1234567890', '12345678901', '123456789012345', 'A1234567']) expect(looksLikeIdNumber(bad)).toBe(true);
+  });
+});

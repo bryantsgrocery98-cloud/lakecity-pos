@@ -5,7 +5,7 @@ import { createApp } from './app.js';
 import { getSetting, openDb } from './db.js';
 import { seedIfEmpty } from './seed.js';
 import { createDisplay, listScreens, openCustomerWindow } from './display.js';
-import { applyDealPresets, clearWrongAgeFlags, linkButtonsToItems } from './deal-presets.js';
+import { applyDealPresets, clearWrongAgeFlags, linkButtonsToItems, unlinkIdBarcodes } from './deal-presets.js';
 import { createUpdater } from './updater.js';
 import { autoCloseWorkdays } from './reports.js';
 import { zReportBytes } from './escpos.js';
@@ -25,6 +25,8 @@ const presetDeals = applyDealPresets(db);
 if (presetDeals) console.log(`[deals] set shelf deals on ${presetDeals} items`);
 const cleared = clearWrongAgeFlags(db);
 if (cleared) console.log(`[id] cleared the ID flag on ${cleared} items/buttons that are not alcohol or tobacco`);
+const unlinked = unlinkIdBarcodes(db);
+if (unlinked.length) console.log(`[barcodes] removed license numbers linked as barcodes: ${unlinked.join(', ')}`);
 const linked = linkButtonsToItems(db);
 if (linked) console.log(`[buttons] linked ${linked} quick buttons to their inventory items`);
 

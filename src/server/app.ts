@@ -11,7 +11,7 @@ import { drawerBytes, receiptBytes, testBytes, zReportBytes, type ReceiptText } 
 import { listPrinters, listSerialPorts, pulseSerialDrawer, sendToPrinter } from './printer.js';
 import { closeOurWindows, createDisplay, focusRegisterWindow, listScreens, minimizeRegisterWindow, openCustomerWindow, openRegisterWindow, powerOffComputer, type DisplayState } from './display.js';
 import { lookupBarcode, lookupBarcodeLight, lastLookupError } from './lookup.js';
-import { RESTRICTED_RE } from './deal-presets.js';
+import { RESTRICTED_RE, certainlyIdNumber, looksLikeIdNumber } from './deal-presets.js';
 import { buildDayReport } from './reports.js';
 import type {
   AgeCheckInput, Bootstrap, ButtonDto, HoldDto, ItemDto, Receipt, SaleInput, SaleLineInput, StoreDto,
@@ -126,6 +126,8 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   app.get('/api/scan/:code', wrap((req, res) => {
     // Scanners differ on leading zeros (UPC-A as 12 or 13 digits, EAN-8/UPC-E as 8), so try the common forms.
     const raw = String(req.params.code).trim();
+    // The thin 1-D barcode on a driver's license is the license number. It is never a product, even if one got linked by mistake.
+    if (certainlyIdNumber(raw)) throw new HttpError(400, 'That is the license number barcode on the ID, not a product. Scan the big barcode on the ID or the product itself.');
     const forms = [raw];
     if (/^\d+$/.test(raw)) {
       if (raw.length === 13 && raw.startsWith('0')) forms.push(raw.slice(1));
@@ -142,10 +144,11 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
   app.post('/api/barcodes/link', wrap((req, res) => {
     const { code, itemId, cashier } = req.body ?? {};
     if (typeof code !== 'string' || !/^[0-9A-Za-z\-]{4,64}$/.test(code)) throw new HttpError(400, 'That barcode looks wrong.');
+    if (looksLikeIdNumber(code)) throw new HttpError(400, `${code} looks like a license number, not a product barcode. Scan the product's own barcode.`);
     if (!db.prepare(`SELECT 1 FROM items WHERE id = ? AND active = 1`).get(itemId)) throw new HttpError(400, 'Pick an item first.');
     if (db.prepare(`SELECT 1 FROM barcodes WHERE code = ?`).get(code)) throw new HttpError(409, 'That barcode is already linked to an item.');
     db.prepare(`INSERT INTO barcodes (code, item_id) VALUES (?, ?)`).run(code, itemId);
-    audit(db, String(cashier ?? 'unknown'), 'barcode_linked', `item ${itemId}`);
+    audit(db, String(cashier ?? 'unknown'), 'barcode_linked', `item ${itemId} ${code}`);
     res.json({ ok: true });
   }));
 
@@ -562,6 +565,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     if (!isManagerPin(db, b.pin)) throw new HttpError(403, 'A manager PIN is needed to add items.');
     const code = String(b.code ?? '');
     if (!/^[0-9A-Za-z\-]{4,64}$/.test(code)) throw new HttpError(400, 'That barcode looks wrong.');
+    if (looksLikeIdNumber(code)) throw new HttpError(400, `${code} looks like a license number, not a product barcode. Scan the product's own barcode.`);
     if (db.prepare(`SELECT 1 FROM barcodes WHERE code = ?`).get(code)) throw new HttpError(409, 'That barcode is already linked to an item.');
     const v = validateItem({ ...b, qtyOnHand: b.qtyOnHand ?? 0 }, false);
     const cols = Object.keys(v);
@@ -596,6 +600,7 @@ export function createApp(db: DB, staticDir?: string, extras: AppExtras = {}) {
     if (!isManagerPin(db, pin)) throw new HttpError(403, 'A manager PIN is needed.');
     const id = Number(req.params.id);
     if (typeof code !== 'string' || !/^[0-9A-Za-z\-]{4,64}$/.test(code)) throw new HttpError(400, 'That barcode looks wrong.');
+    if (looksLikeIdNumber(code)) throw new HttpError(400, `${code} looks like a license number, not a product barcode. Scan the product's own barcode.`);
     if (!db.prepare(`SELECT 1 FROM items WHERE id = ?`).get(id)) throw new HttpError(404, 'That item no longer exists.');
     const owner = db.prepare(`SELECT i.name FROM barcodes b JOIN items i ON i.id = b.item_id WHERE b.code = ?`).get(code) as { name: string } | undefined;
     if (owner) throw new HttpError(409, `That barcode already belongs to ${owner.name}.`);
