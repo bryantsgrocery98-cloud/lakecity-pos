@@ -1,7 +1,7 @@
 {
-  "version": "0.14.1",
-  "file": "lakecity-pos-0.14.1.zip",
-  "sha256": "088041544efc0d430063f3aa0c84db8d3a6ce2577bd51ff5b24e2c622c12e08e",
-  "notes": "CHECK button at the bottom of the cart next to CASH and CARD; TAB moved off the pay row to a Charge to Tab button next to Pay on Tab.",
-  "builtAt": "2026-10-19T14:57:39.238Z"
+  "version": "0.15.0",
+  "file": "lakecity-pos-0.15.0.zip",
+  "sha256": "3b4a50cecb00d1d513064c04b24cee4ebfd2d18ad5b0d3ed0368a343bc5e0725",
+  "notes": "Open Register with items on the ticket rings them up as a cash sale in one tap; the CHECK button at the bottom adds the check with no fee (Cash a Check still charges the fee); ID scans can no longer link the license's barcode to a product.",
+  "builtAt": "2026-10-22T22:55:18.625Z"
 }
