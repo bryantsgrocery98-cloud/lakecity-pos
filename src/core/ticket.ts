@@ -28,8 +28,9 @@ export type TicketLine = {
 };
 
 /** "Check cashing (check $500.00)" — the fee itself is whatever the cashier charged. */
-export function checkFeeLabel(checkCents: number): string {
-  return `Check cashing (check $${(checkCents / 100).toFixed(2)})`;
+export function checkFeeLabel(checkCents: number, feeCents = 1): string {
+  const amt = `$${(checkCents / 100).toFixed(2)}`;
+  return feeCents === 0 ? `Check ${amt} (no fee)` : `Check cashing (check ${amt})`;
 }
 
 export type TaxLine = { authorityId: number; title: string; cents: number };

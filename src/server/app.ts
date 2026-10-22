@@ -1192,7 +1192,7 @@ function buildLine(db: DB, l: SaleLineInput, i: number): TicketLine {
       // unitCents is the fee the cashier charged; baseCents is the check being cashed.
       const check = Number(l.baseCents);
       if (!Number.isInteger(check) || check <= 0 || check > 10_000_000) throw new HttpError(400, 'Enter the check amount.');
-      return { key, kind: 'service', service: 'check_fee', name: checkFeeLabel(check), qty: 1, unitCents: amt, baseCents: check,
+      return { key, kind: 'service', service: 'check_fee', name: checkFeeLabel(check, amt), qty: 1, unitCents: amt, baseCents: check,
         authorityId: null, category: 'Check Cashing', ageMin: null };
     }
     throw new HttpError(400, 'Unknown service.');

@@ -451,8 +451,10 @@ export function TodayModal({ onClose }: { onClose: () => void }) {
 }
 
 /** Check cashing: type the check amount, pick the fee (flat dollars), add to the ticket. */
-export function CheckModal({ defaultFeeCents, ticketTotal, busy, error, onClose, onDone }: {
+export function CheckModal({ defaultFeeCents, ticketTotal, busy, error, onClose, onDone, payOnly = false }: {
   defaultFeeCents: number; ticketTotal: number; busy: boolean; error: string; onClose: () => void; onDone: (checkCents: number, feeCents: number) => void;
+  /** Paying for the ticket with a check: no fee, no fee buttons. */
+  payOnly?: boolean;
 }) {
   const { digits, press } = useDigits(8);
   const check = centsFromKeypadDigits(digits);
@@ -463,7 +465,7 @@ export function CheckModal({ defaultFeeCents, ticketTotal, busy, error, onClose,
   const cashOut = check - feeCents - ticketTotal;
   const ok = check > 0 && cashOut >= 0 && !busy;
   return (
-    <Modal title="Cash a check" onClose={onClose} footer={<>
+    <Modal title={payOnly ? 'Pay by check' : 'Cash a check'} onClose={onClose} footer={<>
       {check > 0 && cashOut < 0 && <div className="err">The check does not cover the fee and the items already on the ticket.</div>}
       {error && <div className="err">{error}</div>}
       <button className="btn btn-primary btn-block" style={{ minHeight: 56, fontSize: 20 }} disabled={!ok} onClick={() => onDone(check, feeCents)}>Add to ticket</button>
@@ -471,23 +473,23 @@ export function CheckModal({ defaultFeeCents, ticketTotal, busy, error, onClose,
       <div className="field-label">CHECK AMOUNT — digits fill in from the right, so 5 0 0 0 0 makes $500.00</div>
       <div className="display num" aria-label="Check amount">{formatCents(check)}</div>
       {!customFee && <Keypad onKey={(k) => (k === '00' ? (press('0'), press('0')) : press(k))} doubleZero onEnter={() => { if (ok) onDone(check, feeCents); }} />}
-      <div className="field-label">FEE</div>
+      {!payOnly && <><div className="field-label">FEE</div>
       <div className="chips">
         {[100, 200, 300, 500].map((c) => <button key={c} className={`chip ${!customFee && fee === c ? 'on' : ''}`} onClick={() => { setCustomFee(false); setFee(c); }}>{formatCents(c)}</button>)}
         <button className={`chip ${!customFee && fee === 0 ? 'on' : ''}`} onClick={() => { setCustomFee(false); setFee(0); }}>No fee</button>
         <button className={`chip ${customFee ? 'on' : ''}`} onClick={() => setCustomFee(true)}>Other…</button>
-      </div>
+      </div></>}
       {customFee && <>
         <div className="display num" style={{ height: 52, fontSize: 28 }} aria-label="Fee">{formatCents(feeCents)}</div>
         <Keypad onKey={(k) => (k === '00' ? (feePress('0'), feePress('0')) : feePress(k))} doubleZero onEnter={() => setCustomFee(false)} />
         <button className="btn btn-block" onClick={() => { setFee(feeCents); setCustomFee(false); }}>Use {formatCents(feeCents)}</button>
       </>}
       <div className="change" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fee</span><span className="num">{formatCents(feeCents)}</span></div>
+        {!payOnly && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fee</span><span className="num">{formatCents(feeCents)}</span></div>}
         {ticketTotal > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Items on this ticket</span><span className="num">{formatCents(ticketTotal)}</span></div>}
         <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 24 }}><span>Cash to customer</span><span className="num">{formatCents(Math.max(0, cashOut))}</span></div>
       </div>
-      <div className="hint">Ring up anything else the customer is buying, then press <b>CHECK</b> to finish.</div>
+      <div className="hint">{payOnly ? <>No fee. Press <b>CHECK</b> again to finish; any extra goes back as cash.</> : <>Ring up anything else the customer is buying, then press <b>CHECK</b> to finish.</>}</div>
     </Modal>
   );
 }

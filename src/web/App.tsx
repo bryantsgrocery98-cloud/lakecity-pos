@@ -15,7 +15,7 @@ import { installTapSound, play, setSoundsEnabled, soundsEnabled } from './sounds
 import { CategoryArt } from './art';
 
 type ModalState =
-  | { t: 'power' } | { t: 'manual' } | { t: 'cash' } | { t: 'wincash' } | { t: 'card' } | { t: 'check' } | { t: 'gas' }
+  | { t: 'power' } | { t: 'manual' } | { t: 'cash' } | { t: 'wincash' } | { t: 'card' } | { t: 'check'; payOnly?: boolean } | { t: 'gas' }
   | { t: 'editbtn'; button: ButtonDto } | { t: 'editpage'; pageId: number } | { t: 'tabpick' } | { t: 'tabcharge'; customer: CustomerDto } | { t: 'tabpaypick' } | { t: 'tabpay'; customer: CustomerDto } | { t: 'lottery' } | { t: 'payout' } | { t: 'id' } | { t: 'dob' } | { t: 'recall' }
   | { t: 'discount' } | { t: 'today' }
   | { t: 'ask'; button: ButtonDto }
@@ -97,6 +97,7 @@ export function App() {
   const focusSearch = () => { if (!modalRef.current) searchRef.current?.focus(); };
   const modalRef = useRef<ModalState | null>(null);
   const manualPin = useRef<string | undefined>(undefined);
+  const lastIdScan = useRef(0);
 
   const isMgr = user?.role === 'manager' || user?.role === 'owner';
   /** Managers and owners act on their own login; cashiers are asked for a manager's PIN. */
@@ -218,6 +219,7 @@ export function App() {
     if (!boot || !user) return;
     const text = raw.replace(/\s+$/, '');
     if (looksLikeId(text)) {
+      lastIdScan.current = Date.now();
       setSearch('');
       const r = parseIdForAge(text);
       if (!r.ok) { showToast(r.reason, true); return; }
@@ -231,6 +233,10 @@ export function App() {
     }
     const code = text.trim();
     if (invScan.current) { if (code.length >= 4) invScan.current(code); return; }
+    // Driver's licenses also carry a plain 1-D barcode (the license number). If the scanner reads that one, it must
+    // never be linked to a product: skip unknown codes for a few seconds after an ID, and never treat an ID-shaped
+    // string as a barcode.
+    if (/^ID:|^@|ANSI /.test(code)) return;
     if (modal && modal.t !== 'id') return; // finish the open screen first
     if (code.length < 4) return;
     setSearch('');
@@ -240,6 +246,7 @@ export function App() {
       if (it) addItem({ ...it });
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
+        if (Date.now() - lastIdScan.current < 4000) { showToast('That barcode came from the ID, not a product.'); return; }
         setLinkError(''); setModal({ t: 'link', code });
         // Ask the open product database in the background; fill the card in when it answers.
         api<Lookup>(`/api/lookup/${encodeURIComponent(code)}`).then((lk) => {
@@ -616,7 +623,7 @@ export function App() {
             <button className="btn btn-cash" disabled={!canPay} onClick={() => startPay('cash')}><span className="cash-sign">$</span> CASH</button>
             <button className="btn btn-card" disabled={!canPay} onClick={() => startPay('card')}><Icon name="card" size={26} /> CARD</button>
             <button className="btn btn-check" disabled={!canPay && checkCents === 0}
-              onClick={() => { setPayError(''); if (checkCents > 0) { if (canPay && checkCashBack >= 0) completeSale({ tender: 'check', tenderedCents: checkCents }); } else setModal({ t: 'check' }); }}><Icon name="check" size={24} /> CHECK</button>
+              onClick={() => { setPayError(''); if (checkCents > 0) { if (canPay && checkCashBack >= 0) completeSale({ tender: 'check', tenderedCents: checkCents }); } else setModal({ t: 'check', payOnly: true }); }}><Icon name="check" size={24} /> CHECK</button>
           </div>
           {lines.length > 0 && (
             <div className="cancel-row">
@@ -704,7 +711,12 @@ export function App() {
           <div className="actions">
             <button className="act hold" onClick={holdTicket}><Icon name="hold" /> Hold{holds.length > 0 && <span className="badge" data-testid="hold-badge">{holds.length}</span>}</button>
             <button className="act" onClick={openRecall}><Icon name="recall" /> Recall</button>
-            <button className="act" onClick={() => noSale()}><Icon name="drawer" /> Open Register</button>
+            <button className="act" onClick={() => {
+              if (lines.length === 0) { noSale(); return; }
+              // Items on the ticket: Open Register rings them up as an exact cash sale in one tap (the drawer opens with the sale).
+              if (!canPay) { showToast(ageStatus === 'needed' || ageStatus === 'under' || ageStatus === 'expired' ? 'Scan the ID first.' : 'Finish the ticket first.', true); return; }
+              setPayError(''); completeSale({ tender: 'cash', tenderedCents: totals.totalCents });
+            }}><Icon name="drawer" /> Open Register</button>
             <button className="act" onClick={() => setModal({ t: 'discount' })}><Icon name="discount" /> Discount</button>
             <button className="act" onClick={() => { if (!canPay) { showToast('Ring up the items first.'); return; } setPayError(''); setModal({ t: 'tabpick' }); }}><Icon name="id" /> Charge to Tab</button>
             <button className="act" onClick={() => setModal({ t: 'tabpaypick' })}><Icon name="id" /> Pay on Tab</button>
@@ -743,9 +755,9 @@ export function App() {
         pushLine({ kind: 'service', service: 'gas', name: 'Gas', qty: 1, unitCents: cents, authorityId: null, category: 'Gas', ageMin: null });
         setModal(null);
       }} />}
-      {modal?.t === 'check' && <CheckModal defaultFeeCents={boot.settings.checkFeeCents} ticketTotal={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)}
+      {modal?.t === 'check' && <CheckModal payOnly={!!modal.payOnly} defaultFeeCents={modal.payOnly ? 0 : boot.settings.checkFeeCents} ticketTotal={totals.totalCents} busy={busy} error={payError} onClose={() => setModal(null)}
         onDone={(cents, fee) => {
-          pushLine({ kind: 'service', service: 'check_fee', name: checkFeeLabel(cents), qty: 1,
+          pushLine({ kind: 'service', service: 'check_fee', name: checkFeeLabel(cents, fee), qty: 1,
             unitCents: fee, baseCents: cents, authorityId: null, category: 'Check Cashing', ageMin: null });
           setModal(null);
           showToast(`Check for ${formatCents(cents)} on the ticket. Press CHECK when done to pay out the cash.`);
