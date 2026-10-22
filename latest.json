@@ -1,7 +1,7 @@
 {
-  "version": "0.15.0",
-  "file": "lakecity-pos-0.15.0.zip",
-  "sha256": "3b4a50cecb00d1d513064c04b24cee4ebfd2d18ad5b0d3ed0368a343bc5e0725",
-  "notes": "Open Register with items on the ticket rings them up as a cash sale in one tap; the CHECK button at the bottom adds the check with no fee (Cash a Check still charges the fee); ID scans can no longer link the license's barcode to a product.",
-  "builtAt": "2026-10-22T22:55:18.625Z"
+  "version": "0.15.1",
+  "file": "lakecity-pos-0.15.1.zip",
+  "sha256": "89773ca6935bf099c15f01211d02e075d3709105f7408aa9cd3994fded5da39d",
+  "notes": "ID scans: the license-number barcode on an ID is never treated as a product (even if one was linked by mistake), and any such links on beer/tobacco are removed at every start.",
+  "builtAt": "2026-10-22T23:52:40.625Z"
 }
